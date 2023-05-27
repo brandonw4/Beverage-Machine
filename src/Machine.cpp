@@ -58,7 +58,7 @@ void Machine::boot() {
         Serial.println();
     } //for every bev
 
-    touchscreen.changePage("1");
+    loadMainMenu();
 } //Machine::boot()
 
 void Machine::initSD() {
@@ -150,6 +150,19 @@ String TouchControl::checkForInput() {
     
     if (Serial2.available() > 0) {
         touchInput = Serial2.readStringUntil('@');
+        // if (Serial2.readString() == "!") {
+        //     touchInput = Serial2.readStringUntil('@');
+        //     std::stringstream ss(touchInput.c_str());
+        //     std::string cmd;
+        //     while (ss >> cmd) {
+        //         if (cmd == "gopage") {
+        //             ss >> cmd;
+        //             //
+        //         } //if
+        //     } //while
+        // } //if
+        
+        
         Serial.println("Data from display: " + touchInput);
     } //while serial available
 
@@ -185,8 +198,43 @@ void TouchControl::controlCurPage(String item, String cmd, String val) {
 } //TouchControl::controlCurPage()
 
 void Machine::loadMainMenu() {
-
+    touchscreen.changePage("1");
+    /*
+    Check the status of each bottle, update UI accordingly.
+    */
+   //green color: 1024
+   //yellow color: 65088
+   //default color is green
+   for (auto bottle:bottles) {
+    if (!bottle.active) {
+        String itemId = "bs" + String(bottle.id);
+        touchscreen.controlCurPage(itemId, "bco", "65088");
+    }
+    else {
+        String itemId = "bs" + String(bottle.id);
+        touchscreen.controlCurPage(itemId, "bco", "1024");
+    }
+   } //for bottle
 } //Machine::loadMainMenu()
+
+void Machine::loadAdminMenu() {
+    /*
+    Update auth statuses, update motor status, estimated remaining.
+    TODO: beverage menu slider control w/ enable/disable, pricing updates, some sort of debug console out, access to primitive logs
+    */
+   touchscreen.changePage("4");
+
+   touchscreen.controlCurPage("cauthsw", "val", String(authCocktail));
+   touchscreen.controlCurPage("sauthsw", "val", String(authShots));
+
+   for (auto bottle:bottles) {
+    String itemId = "sw" + String(bottle.id);
+    touchscreen.controlCurPage(itemId, "val", String(bottle.active));
+    itemId = "bcap" + String(bottle.id);
+    touchscreen.controlCurPage(itemId, "txt", String(bottle.estimatedCapacity));
+   } //for bottle
+
+} //Machine::loadAdminMenu()
 
 void Beverage::createBeverage(std::vector<Bottle> &bottles) {
     double bevTotalPrice = 0.0;

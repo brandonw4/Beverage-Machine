@@ -39,6 +39,7 @@ class TouchControl {
         TODO: create a function that abstracts the controlling of screen, like buttonId, etc. 
     */
         String checkForInput();
+        int currentPage = 0;
 
         void printDebug(String str) {
             Serial.print("SENT T.SCREEN: ");
@@ -57,6 +58,7 @@ class TouchControl {
             String send = "page ";
             send.concat(pageNum);
             touchOutput(send);
+            currentPage = pageNum.toInt();
         }; //void changePage()
 
 }; //class TouchControl
@@ -91,6 +93,7 @@ class Machine {
         void initData();
 
         void loadMainMenu();
+        void loadAdminMenu();
 
     public:
         TouchControl touchscreen;
