@@ -6,7 +6,7 @@
 #include <SD.h>
 #include <stdexcept>
 #include <vector>
-#include <fstream>
+#include <sstream>
 
 #define CS_PIN 5
 
@@ -63,11 +63,11 @@ class TouchControl {
 
 class Beverage {
     private:
+    public:
         String name;
         bool isActive = true;
         double ozArr[MOTOR_COUNT];
         String additionalInstructions = "";
-    public:
         void createBeverage(std::vector<Bottle> &bottles);
 };
 
@@ -78,13 +78,19 @@ class Machine {
         File data;
         File log;
         //File paymentLog
+
         std::vector<Bottle> bottles;
         std::vector<Beverage> beverages;
         bool authCocktail = false; //require auth on cocktail
         bool authShots = false; //require auth on shots
+        
+        //filedata
         void initSD();
         void initConfig();
+        void initBottles();
         void initData();
+
+        void loadMainMenu();
 
     public:
         TouchControl touchscreen;

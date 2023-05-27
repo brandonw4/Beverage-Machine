@@ -18,6 +18,7 @@ void Machine::boot() {
     try {
         initSD();
         initConfig();
+        initBottles();
         initData();
     } //try
     catch(String msg) {
@@ -43,6 +44,19 @@ void Machine::boot() {
         Serial.println(bottle.estimatedCapacity);
         Serial.println();
     } //for every bottle
+    Serial.println();
+    Serial.println("ONBOARD BOTTLE BEV READ: ");
+    for (auto bev:beverages) {
+        Serial.println(bev.name);
+        Serial.println(bev.isActive);
+        for (size_t i = 0; i < MOTOR_COUNT; i++) {
+            Serial.print(bev.ozArr[i]);
+            Serial.print(" ");
+        } //for i
+        Serial.println();
+        Serial.println(bev.additionalInstructions);
+        Serial.println();
+    } //for every bev
 
     touchscreen.changePage("1");
 } //Machine::boot()
@@ -76,26 +90,56 @@ void Machine::initConfig() {
     config.close();
 } //Machine::initConfig()
 
-void Machine::initData() {
+void Machine::initBottles() {
     for (size_t i = 0; i < MOTOR_COUNT; i++) {
+        String path = "/bottle-" + String(i) + ".txt";
+        File curBottle = SD.open(path);
+        if (!curBottle) {
+            String msg = "ERROR 102: " + path + " FILE ERROR.";
+            throw(msg);
+        } //if file error
         Bottle bottle;
-        bottle.name = data.readStringUntil('\n');
-        bottle.id = data.readStringUntil('\n').toInt();
-        int bottleIsActive = data.readStringUntil('\n').toInt();
+        bottle.name = curBottle.readStringUntil('\n');
+        bottle.id = curBottle.readStringUntil('\n').toInt();
+        int bottleIsActive = curBottle.readStringUntil('\n').toInt();
         if (bottleIsActive != 1 && bottleIsActive != 0) {
             String error = "FILE ERROR Bottle Index: " + String(i) + " invalid type isActive bool.";
             throw(error);
         } //if invalid type
-        int bottleIsShot = data.readStringUntil('\n').toInt();
+        int bottleIsShot = curBottle.readStringUntil('\n').toInt();
         if (bottleIsShot != 1 && bottleIsShot != 0) {
             String error = "FILE ERROR Bottle Index: " + String(i) + " invalid type isShot bool.";
             throw(error);
         } //if invalid type
         bottle.active = bottleIsActive;
         bottle.isShot = bottleIsShot;
-        bottle.costPerOz = data.readStringUntil('\n').toDouble();
-        bottle.estimatedCapacity = data.readStringUntil('\n').toDouble();
+        bottle.costPerOz = curBottle.readStringUntil('\n').toDouble();
+        bottle.estimatedCapacity = curBottle.readStringUntil('\n').toDouble();
         bottles.push_back(bottle);
+        curBottle.close();
+    } //for i
+} //Machine::initBottles()
+void Machine::initData() {
+    for (size_t i = 0; i < BEV_COUNT; i++) {
+        Beverage bev;
+        bev.name = data.readStringUntil('\n');
+        int bevIsActive = data.readStringUntil('\n').toInt();
+        if (bevIsActive != 1 && bevIsActive != 0) {
+            String error = "FILE ERROR Beverage Index: " + String(i) + " invalid type isActive bool.";
+            throw(error);
+        } //if invalid type
+        bev.isActive = bevIsActive;
+        
+        std::string ozLine = data.readStringUntil('\n').c_str();
+        std::stringstream ss(ozLine);
+        for (size_t j = 0; j < MOTOR_COUNT; j++) {
+            ss >> bev.ozArr[j];
+        } //for j
+
+        String inst = data.readStringUntil('\n');
+        inst.trim();
+        bev.additionalInstructions = inst;
+        beverages.push_back(bev);
     } //for i
     data.close();
 } //Machine::initData()
@@ -139,6 +183,10 @@ void TouchControl::controlCurPage(String item, String cmd, String val) {
             
             printDebug(send);
 } //TouchControl::controlCurPage()
+
+void Machine::loadMainMenu() {
+
+} //Machine::loadMainMenu()
 
 void Beverage::createBeverage(std::vector<Bottle> &bottles) {
     double bevTotalPrice = 0.0;
