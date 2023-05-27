@@ -11,14 +11,14 @@ void Machine::boot() {
 
 
 
-    //resize and fill vectors
-    bottles.resize(MOTOR_COUNT);
-    beverages.resize(BEV_COUNT);
-    touchscreen.controlCurPage("t3", "txt", "SD CARD NOT SETUP NO DATA");
+    //reserve and fill vectors
+    bottles.reserve(MOTOR_COUNT);
+    beverages.reserve(BEV_COUNT);
     //TODO: These need to be filled from SD Card data
     try {
         initSD();
-        //initConfig(); Read in all config data
+        initConfig();
+        initData();
     } //try
     catch(String msg) {
         Serial.println(msg);
@@ -31,6 +31,18 @@ void Machine::boot() {
     } //catch
 
     Serial.println("Boot successful."); 
+    Serial.println("authCocktail: " + String(authCocktail) + " authShots: " + String(authShots));
+
+    Serial.println("ONBOARD BOTTLE DATA READ: ");
+    for (auto bottle:bottles) {
+        Serial.println(bottle.name);
+        Serial.println(bottle.id);
+        Serial.println(bottle.active);
+        Serial.println(bottle.isShot);
+        Serial.println(bottle.costPerOz);
+        Serial.println(bottle.estimatedCapacity);
+        Serial.println();
+    } //for every bottle
 
     touchscreen.changePage("1");
 } //Machine::boot()
@@ -40,7 +52,53 @@ void Machine::initSD() {
     if (!SD.begin(CS_PIN)) {
         throw ("ERROR 101: SD CARD FAILED INIT.");
     } //if SD init failed
+    config = SD.open("/config.txt");
+    if (!config) {
+        throw("ERROR 102: config.txt FILE ERROR.");
+    } //if config fail
+    data = SD.open("/data.txt");
+    if (!data) {
+        throw("ERROR 102: data.txt FILE ERROR.");
+    } //if log fail
+    log = SD.open("/log.txt");
+    if (!log) {
+        throw("ERROR 102: log.txt FILE ERROR.");
+    } //if log fail
+    log.close();
 } //Machine::initSD()
+
+void Machine::initConfig() {
+    //Read authCocktail
+    String line = config.readStringUntil('\n');
+    authCocktail = line.substring(line.indexOf('=') + 1).toInt();
+    line = config.readStringUntil('\n');
+    authShots = line.substring(line.indexOf('=') + 1).toInt();
+    config.close();
+} //Machine::initConfig()
+
+void Machine::initData() {
+    for (size_t i = 0; i < MOTOR_COUNT; i++) {
+        Bottle bottle;
+        bottle.name = data.readStringUntil('\n');
+        bottle.id = data.readStringUntil('\n').toInt();
+        int bottleIsActive = data.readStringUntil('\n').toInt();
+        if (bottleIsActive != 1 && bottleIsActive != 0) {
+            String error = "FILE ERROR Bottle Index: " + String(i) + " invalid type isActive bool.";
+            throw(error);
+        } //if invalid type
+        int bottleIsShot = data.readStringUntil('\n').toInt();
+        if (bottleIsShot != 1 && bottleIsShot != 0) {
+            String error = "FILE ERROR Bottle Index: " + String(i) + " invalid type isShot bool.";
+            throw(error);
+        } //if invalid type
+        bottle.active = bottleIsActive;
+        bottle.isShot = bottleIsShot;
+        bottle.costPerOz = data.readStringUntil('\n').toDouble();
+        bottle.estimatedCapacity = data.readStringUntil('\n').toDouble();
+        bottles.push_back(bottle);
+    } //for i
+    data.close();
+} //Machine::initData()
 
 
 String TouchControl::checkForInput() {

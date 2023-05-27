@@ -6,6 +6,7 @@
 #include <SD.h>
 #include <stdexcept>
 #include <vector>
+#include <fstream>
 
 #define CS_PIN 5
 
@@ -16,8 +17,11 @@ const size_t PASSCODE[] = {1,0,2,5}; //ik im not proud of this
 
 struct Bottle {
     String name;
+    int id = -1;
     bool active = false;
     bool isShot = false;
+    double costPerOz = 0.0;
+    double estimatedCapacity = 0.0;
 };
 
 
@@ -59,8 +63,8 @@ class TouchControl {
 
 class Beverage {
     private:
-        bool isActive = true;
         String name;
+        bool isActive = true;
         double ozArr[MOTOR_COUNT];
         String additionalInstructions = "";
     public:
@@ -71,11 +75,16 @@ class Machine {
     private:
         //SD CARD
         File config;
+        File data;
         File log;
         //File paymentLog
         std::vector<Bottle> bottles;
         std::vector<Beverage> beverages;
+        bool authCocktail = false; //require auth on cocktail
+        bool authShots = false; //require auth on shots
         void initSD();
+        void initConfig();
+        void initData();
 
     public:
         TouchControl touchscreen;
