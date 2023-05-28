@@ -76,6 +76,7 @@
 			"chrono": "cpp",
 			"compare": "cpp",
 			"concepts": "cpp"
-		}
+		},
+		"editor.defaultFormatter": "platformio.platformio-ide"
 	}
 }
