@@ -159,6 +159,10 @@ void Machine::initData()
 
         String inst = data.readStringUntil('\n');
         inst.trim();
+        if (inst == "null")
+        {
+            inst = "";
+        } // if (inst == "null")
         bev.additionalInstructions = inst;
         beverages.push_back(bev);
     } // for i
@@ -273,11 +277,10 @@ void Machine::loadCocktailMenu()
     touchscreen.changePage("7");
 
     // for every beverage up to 15 per page, update the text buttons
-    int i = 0;
     for (auto beverage : beverages)
     {
-        String itemId = "b" + String(i);
-        i++;
+        String itemId = "b" + String(beverage.id + 1);
+        
         touchscreen.controlCurPage(itemId, "txt", beverage.name);
         if (beverage.isActive)
         {
