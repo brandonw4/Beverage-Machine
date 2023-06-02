@@ -286,6 +286,68 @@ void Machine::loadCocktailMenu()
     }     // for each beverage
 } // Machine::loadCocktailMenu()
 
+void Machine::inputDecisionTree() {
+    if (Serial2.available()) {
+        String input = Serial2.readString();
+        if (input.isEmpty()) {
+            return;
+        }
+        Serial.println("Data from display: " + input);  // print the received data
+        input.trim();  // remove any whitespace
+        int separatorIndex = input.indexOf('@');
+
+        // if we didn't find the '@' symbol, throw an error
+        if (separatorIndex == -1) {
+            Serial.println("Expected a '@' in the command, but received: " + input);
+            return;
+        }
+
+        // split the command into two parts
+        String command = input.substring(0, separatorIndex);
+        command.trim();  // remove any whitespace
+
+        String pageNumberStr = input.substring(separatorIndex + 1);
+        pageNumberStr.trim();  // remove any whitespace
+
+        // if the command is not '!gopage', throw an error
+        if (command != "!gopage") {
+            Serial.println("Received an invalid command: " + command);
+            return;
+        }
+
+        // try to convert the page number to an integer
+        int pageNumber = pageNumberStr.toInt();
+
+        // if the page number is not between 0 and 99, throw an error
+        if (pageNumber < 0 || pageNumber > 99) {
+            Serial.println("Page number must be between 0 and 99, but received: " + pageNumberStr);
+            return;
+        }
+
+        // if we got this far, everything is good, so print the page number
+        Serial.print("Going to page ");
+        Serial.println(pageNumber);
+
+        switch(pageNumber) {
+            case 1:
+                loadMainMenu();
+                break;
+            case 4:
+                loadAdminMenu();
+                break;
+            case 7:
+                loadCocktailMenu();
+                break;
+            default:
+                Serial.println("Invalid page number: " + pageNumber);
+                break;
+        } // switch(pageNumber
+
+    }
+} // Machine::inputDecisionTree()
+
+
+
 void Beverage::createBeverage(std::vector<Bottle> &bottles)
 {
     double bevTotalPrice = 0.0;

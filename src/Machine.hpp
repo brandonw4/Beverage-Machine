@@ -27,6 +27,18 @@ struct Bottle
 
 class TouchControl
 {
+    /*
+    Page Mappings:
+    0: start
+    1: home
+    2: 
+    3: auth
+    4: admin
+    5: datalog
+    6: keybdB (locked)
+    7: ctail1
+    8: dispense
+    */
 private:
     void touchOutput(String str); // touch screen requires specific format
     void flushStream()
@@ -37,9 +49,6 @@ private:
     };
 
 public:
-    /*
-        TODO: create a function that abstracts the controlling of screen, like buttonId, etc.
-    */
     String checkForInput();
     int currentPage = 0;
 
@@ -108,6 +117,7 @@ public:
     TouchControl touchscreen;
     void boot();
     void makeSelection();
+    void inputDecisionTree();
 };
 
 #endif /*Machine_hpp*/

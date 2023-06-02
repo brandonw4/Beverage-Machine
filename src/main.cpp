@@ -12,7 +12,13 @@ void loop() {
     /*
     if there is serial input (either from debug console or from touchscreen), run the decision tree
     */
-   bevMaker.touchscreen.checkForInput();
+   try {
+        bevMaker.inputDecisionTree();
+    } catch (const std::invalid_argument& e) {
+        Serial.println(e.what());
+    } catch (...) {
+        Serial.println("An unexpected error occurred.");
+    }
 }
 
 
