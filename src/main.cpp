@@ -18,7 +18,7 @@ void loop() {
         Serial.println(e.what());
     } catch (...) {
         Serial.println("An unexpected error occurred.");
-    }
+    }   
 }
 
 

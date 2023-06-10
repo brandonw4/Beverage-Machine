@@ -19,6 +19,8 @@ void Machine::boot()
         initConfig();
         initBottles();
         initData();
+        loadCell.initLoadCell();
+        touchscreen.controlCurPage("t3", "txt", "Scale init.");
     } // try
     catch (String msg)
     {
@@ -61,6 +63,11 @@ void Machine::boot()
         Serial.println(bev.additionalInstructions);
         Serial.println();
     } // for every bev
+
+    /*
+    try calibrating, if cancelled or failed, try again, then reboot.
+    */
+    calibrate();
 
     loadMainMenu();
 } // Machine::boot()
@@ -227,6 +234,25 @@ void TouchControl::controlCurPage(String item, String cmd, String val)
     printDebug(send);
 } // TouchControl::controlCurPage()
 
+void LoadCell::initLoadCell()
+{
+    scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+    if (scale.read() < 0.1)
+    {
+        throw("ERROR 101: Load Cell not found.");
+    } // if scale.read()
+} // LoadCell::initLoadCell()
+
+void LoadCell::tareScale()
+{
+    tareWeight = scale.read();
+} // LoadCell::tareScale()
+
+int LoadCell::getCurrentWeight()
+{
+    return scale.read() - tareWeight;
+} // LoadCell::getCurrentWeight()
+
 void Machine::loadMainMenu()
 {
     touchscreen.changePage("1");
@@ -280,7 +306,7 @@ void Machine::loadCocktailMenu()
     for (auto beverage : beverages)
     {
         String itemId = "b" + String(beverage.id + 1);
-        
+
         touchscreen.controlCurPage(itemId, "txt", beverage.name);
         if (beverage.isActive)
         {
@@ -289,31 +315,42 @@ void Machine::loadCocktailMenu()
     }     // for each beverage
 } // Machine::loadCocktailMenu()
 
-void Machine::inputDecisionTree() {
-    if (Serial2.available()) {
+void Machine::inputDecisionTree()
+{
+
+
+    while(true) { //DELETE TEMP DEBUG
+        Serial.println(loadCell.getCurrentWeight());
+    }
+
+    if (Serial2.available())
+    {
         String input = Serial2.readString();
-        if (input.isEmpty()) {
+        if (input.isEmpty())
+        {
             return;
         }
-        Serial.println("Data from display: " + input);  // print the received data
-        input.trim();  // remove any whitespace
+        Serial.println("Data from display: " + input); // print the received data
+        input.trim();                                  // remove any whitespace
         int separatorIndex = input.indexOf('@');
 
         // if we didn't find the '@' symbol, throw an error
-        if (separatorIndex == -1) {
+        if (separatorIndex == -1)
+        {
             Serial.println("Expected a '@' in the command, but received: " + input);
             return;
         }
 
         // split the command into two parts
         String command = input.substring(0, separatorIndex);
-        command.trim();  // remove any whitespace
+        command.trim(); // remove any whitespace
 
         String pageNumberStr = input.substring(separatorIndex + 1);
-        pageNumberStr.trim();  // remove any whitespace
+        pageNumberStr.trim(); // remove any whitespace
 
         // if the command is not '!gopage', throw an error
-        if (command != "!gopage") {
+        if (command != "!gopage")
+        {
             Serial.println("Received an invalid command: " + command);
             return;
         }
@@ -322,7 +359,8 @@ void Machine::inputDecisionTree() {
         int pageNumber = pageNumberStr.toInt();
 
         // if the page number is not between 0 and 99, throw an error
-        if (pageNumber < 0 || pageNumber > 99) {
+        if (pageNumber < 0 || pageNumber > 99)
+        {
             Serial.println("Page number must be between 0 and 99, but received: " + pageNumberStr);
             return;
         }
@@ -331,57 +369,71 @@ void Machine::inputDecisionTree() {
         Serial.print("Going to page ");
         Serial.println(pageNumber);
 
-        switch(pageNumber) {
-            case 1:
-                loadMainMenu();
-                break;
-            case 4:
-                loadAdminMenu();
-                break;
-            case 7:
-                loadCocktailMenu();
-                break;
-            default:
-                Serial.println("Invalid page number: " + pageNumber);
-                break;
+        switch (pageNumber)
+        {
+        case 1:
+            loadMainMenu();
+            break;
+        case 4:
+            loadAdminMenu();
+            break;
+        case 7:
+            loadCocktailMenu();
+            break;
+        default:
+            Serial.println("Invalid page number: " + pageNumber);
+            break;
         } // switch(pageNumber
-
     }
 } // Machine::inputDecisionTree()
 
-
-
-void Beverage::createBeverage(std::vector<Bottle> &bottles)
+void Machine::createBeverage(int id)
 {
-    double bevTotalPrice = 0.0;
-
-    if (!isActive)
+    if (!beverages[id].isActive)
     {
-        Serial.println("Beverage " + name + " disabled.");
-        // TODO: SEND TO TOUCH
-        /*
-        Beverage disabled, returning to menu.
-        have a delay or something before returning
-        */
-        return;
-    } // if !active
+        std::string error = "Beverage " + std::to_string(id) + " is not active.";
+        throw BeverageDisabledException(error);
+    } // if (beverages[id].isActive])
 
-    for (size_t i = 0; i < MOTOR_COUNT; i++)
+    Beverage &bev = beverages[id];
+
+    double estimatedCost = 0.0;
+
+    for (int i = 0; i < MOTOR_COUNT; i++)
     {
-        if (bottles[i].active == false && ozArr[i] > 0)
+        if (!bottles[i].active)
         {
-            // TODO: throw a custom error, bottle out of stock
-        } // if bottle is needed and inactive
-    }     // for i
+            throw BottleDisabledException("Bottle " + std::to_string(i) + " is not active.");
+        } // if (!bottles[i].active)
+        if (bottles[i].estimatedCapacity <= bev.ozArr[i])
+        {
+            throw BottleDisabledException("Bottle " + std::to_string(i) + " not enough capacity.");
+        } // if (bottles[i] <= bev.ozArr[i])
 
-    // LoadCell.refreshDataSet(); //BETA Does this effect calibration?? //this was in there from old file
+        estimatedCost += bev.ozArr[i] * bottles[i].costPerOz;
+    } // for i
 
-    // LoadCell.update(); TODO Loadcell
-    if (/*LoadCell.getData() < 4*/ true)
-    {
-        /*
-        TODO: no cup detected error
-        */
-    } // if no weight detected
+    // TODO: present cost to user, ask for confirmation and continue (also write to log and print that no profit is made, at cost dispensed) "Liquor is expensive, this cost is only the store cost of the liquor, no profit is made. Continue?"
 
-} // Beverage::createBeverage()
+    // check for cup w/scale
+
+    /*
+
+    */
+
+} // Machine::createBeverage()
+
+void Machine::calibrate()
+{
+
+    // Load Calibrate Page
+    touchscreen.changePage("8"); // Using the dispense page
+    /*
+    Print out a message about calibration. (Clear the scale etc.)
+    FUTURE: If the scale always outputs a raw value, maybe save it so when we calibrate it should be close to that.
+    */
+
+    //delay(CALIBRATION_WAIT_MS);
+    loadCell.tareScale();
+
+} // Machine::calibrate()

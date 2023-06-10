@@ -4,16 +4,51 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
+#include <HX711.h>
 #include <stdexcept>
 #include <vector>
 #include <sstream>
 
 #define CS_PIN 5
 
+// HX711 circuit wiring
+const int LOADCELL_DOUT_PIN = 32;
+const int LOADCELL_SCK_PIN = 33;
+
+const int CALIBRATION_WAIT_MS = 3000; // Time to give user to see message, then set a calibration value.
+
 const size_t MOTOR_COUNT = 8;
 const size_t BEV_COUNT = 12;
 
 const size_t PASSCODE[] = {1, 0, 2, 5}; // ik im not proud of this
+
+class BeverageDisabledException : public std::exception
+{
+public:
+    BeverageDisabledException(const std::string &message) : message_(message) {}
+
+    const char *what() const noexcept override
+    {
+        return message_.c_str();
+    }
+
+private:
+    std::string message_;
+};
+
+class BottleDisabledException : public std::exception
+{
+public:
+    BottleDisabledException(const std::string &message) : message_(message) {}
+
+    const char *what() const noexcept override
+    {
+        return message_.c_str();
+    }
+
+private:
+    std::string message_;
+};
 
 struct Bottle
 {
@@ -31,7 +66,7 @@ class TouchControl
     Page Mappings:
     0: start
     1: home
-    2: 
+    2:
     3: auth
     4: admin
     5: datalog
@@ -86,7 +121,18 @@ public:
     bool isActive = true;
     double ozArr[MOTOR_COUNT];
     String additionalInstructions = "";
-    void createBeverage(std::vector<Bottle> &bottles);
+};
+
+class LoadCell
+{
+private:
+    HX711 scale;
+    int tareWeight = 0;
+    // FUTURE: var. to track what the weight scale usually is in prod. if its much higher, there's prob. smth. on there.
+public:
+    void initLoadCell();
+    void tareScale();
+    int getCurrentWeight();
 };
 
 class Machine
@@ -100,8 +146,14 @@ private:
 
     std::vector<Bottle> bottles;
     std::vector<Beverage> beverages;
-    bool authCocktail = false; // require auth on cocktail
-    bool authShots = false;    // require auth on shots
+    bool authCocktail = false;  // require auth on cocktail
+    bool authShots = false;     // require auth on shots
+    bool priceMode = true;      // TODO: Add to config
+    bool requirePayment = true; // TODO: Add to config (priceMode must be true also)
+
+    // load cell
+    LoadCell loadCell;
+    void calibrate();
 
     // filedata
     void initSD();
@@ -112,6 +164,8 @@ private:
     void loadMainMenu();
     void loadAdminMenu();
     void loadCocktailMenu();
+
+    void createBeverage(int id);
 
 public:
     TouchControl touchscreen;
