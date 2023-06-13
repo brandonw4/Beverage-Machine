@@ -15,12 +15,22 @@
 const int LOADCELL_DOUT_PIN = 32;
 const int LOADCELL_SCK_PIN = 33;
 
-const int CALIBRATION_WAIT_MS = 3000; // Time to give user to see message, then set a calibration value.
-
 const size_t MOTOR_COUNT = 8;
 const size_t BEV_COUNT = 12;
 
-const size_t PASSCODE[] = {1, 0, 2, 5}; // ik im not proud of this
+class CupNotFoundException : public std::exception
+{
+public:
+    CupNotFoundException(const std::string &message) : message_(message) {}
+
+    const char *what() const noexcept override
+    {
+        return message_.c_str();
+    }
+
+private:
+    std::string message_;
+};
 
 class BeverageDisabledException : public std::exception
 {
@@ -138,6 +148,9 @@ public:
 class Machine
 {
 private:
+    //const size_t PASSCODE[] = {1, 0, 2, 5}; // ik im not proud of this  
+    const int CALIBRATION_WAIT_MS = 3000; // Time to give user to see message, then set a calibration value.
+    const int MIN_CUP_WEIGHT = 5; // Minimum weight of cup to be considered a cup.
     // SD CARD
     File config;
     File data;

@@ -26,11 +26,14 @@ void Machine::boot()
     {
         Serial.println(msg);
         touchscreen.controlCurPage("t3", "txt", msg);
+        //TODO: trigger reboot w/delay
     } // catch msg
     catch (std::exception &e)
     {
         touchscreen.controlCurPage("t3", "txt", "ERROR 100: GENERIC EXCEPTION THROWN, BOOT FAILED.");
         Serial.println(e.what());
+        //TODO: trigger reboot w/delay
+        
 
     } // catch
 
@@ -183,18 +186,6 @@ String TouchControl::checkForInput()
     if (Serial2.available() > 0)
     {
         touchInput = Serial2.readStringUntil('@');
-        // if (Serial2.readString() == "!") {
-        //     touchInput = Serial2.readStringUntil('@');
-        //     std::stringstream ss(touchInput.c_str());
-        //     std::string cmd;
-        //     while (ss >> cmd) {
-        //         if (cmd == "gopage") {
-        //             ss >> cmd;
-        //             //
-        //         } //if
-        //     } //while
-        // } //if
-
         Serial.println("Data from display: " + touchInput);
     } // while serial available
 
@@ -318,11 +309,6 @@ void Machine::loadCocktailMenu()
 void Machine::inputDecisionTree()
 {
 
-
-    while(true) { //DELETE TEMP DEBUG
-        Serial.println(loadCell.getCurrentWeight());
-    }
-
     if (Serial2.available())
     {
         String input = Serial2.readString();
@@ -416,10 +402,14 @@ void Machine::createBeverage(int id)
     // TODO: present cost to user, ask for confirmation and continue (also write to log and print that no profit is made, at cost dispensed) "Liquor is expensive, this cost is only the store cost of the liquor, no profit is made. Continue?"
 
     // check for cup w/scale
+    {
+        int tempLoadCellWeight = loadCell.getCurrentWeight();
+        if (tempLoadCellWeight < MIN_CUP_WEIGHT)
+        {
+            throw CupNotFoundException("No cup found on scale.");
+        } // if (loadCell.getCurrentWeight() < MIN_CUP_WEIGHT)
+    }
 
-    /*
-
-    */
 
 } // Machine::createBeverage()
 
