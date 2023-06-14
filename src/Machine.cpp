@@ -71,7 +71,18 @@ void Machine::boot()
     try calibrating, if cancelled or failed, try again, then reboot.
     */
     calibrate();
+    Serial.println("DEBUG: place test");
+    delay(1000);
 
+    // try {
+    //     createBeverage(0);
+    // }
+    // catch (std::exception &e) {
+    //     Serial.println(e.what());
+    // }
+    // catch (...) {
+    //     Serial.println("Unknown error.");
+    // }
     loadMainMenu();
 } // Machine::boot()
 
@@ -225,24 +236,32 @@ void TouchControl::controlCurPage(String item, String cmd, String val)
     printDebug(send);
 } // TouchControl::controlCurPage()
 
-void LoadCell::initLoadCell()
+void LoadScale::initLoadCell()
 {
-    scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
-    if (scale.read() < 0.1)
-    {
-        throw("ERROR 101: Load Cell not found.");
-    } // if scale.read()
-} // LoadCell::initLoadCell()
+    LoadCell.begin(LOADCELL_GAIN);
+    LoadCell.start(STABILIZING_TIME);
+    LoadCell.setCalFactor(CALIBRATION_FACTOR);
 
-void LoadCell::tareScale()
-{
-    tareWeight = scale.read();
-} // LoadCell::tareScale()
+} // LoadScale::initLoadCell()
 
-int LoadCell::getCurrentWeight()
+void LoadScale::tareScale()
 {
-    return scale.read() - tareWeight;
-} // LoadCell::getCurrentWeight()
+    //tareWeight = scale.read();
+    tareWeight = LoadCell.getData();
+    LoadCell.tareNoDelay();
+} // LoadScale::tareScale()
+
+int LoadScale::getCurrentWeight()
+{   
+    
+    //return scale.read_average(2);
+    //return scale.read_average(2) - tareWeight;
+    //return scale.read() - tareWeight;
+    
+    //return LoadCell.getData();
+    LoadCell.update();
+    return LoadCell.getData() - tareWeight;
+} // LoadScale::getCurrentWeight()
 
 void Machine::loadMainMenu()
 {
@@ -308,6 +327,11 @@ void Machine::loadCocktailMenu()
 
 void Machine::inputDecisionTree()
 {
+
+    // while(true) {
+    //     Serial.println(loadCell.getCurrentWeight());
+    // }
+
 
     if (Serial2.available())
     {
@@ -387,11 +411,11 @@ void Machine::createBeverage(int id)
 
     for (int i = 0; i < MOTOR_COUNT; i++)
     {
-        if (!bottles[i].active)
+        if (bev.ozArr[i] > 0 && !bottles[i].active)
         {
             throw BottleDisabledException("Bottle " + std::to_string(i) + " is not active.");
         } // if (!bottles[i].active)
-        if (bottles[i].estimatedCapacity <= bev.ozArr[i])
+        if ( bev.ozArr[i] > 0 && bottles[i].estimatedCapacity - 2 < bev.ozArr[i]) //if there is not enough liquid, -2 room for error
         {
             throw BottleDisabledException("Bottle " + std::to_string(i) + " not enough capacity.");
         } // if (bottles[i] <= bev.ozArr[i])
@@ -402,16 +426,68 @@ void Machine::createBeverage(int id)
     // TODO: present cost to user, ask for confirmation and continue (also write to log and print that no profit is made, at cost dispensed) "Liquor is expensive, this cost is only the store cost of the liquor, no profit is made. Continue?"
 
     // check for cup w/scale
-    {
-        int tempLoadCellWeight = loadCell.getCurrentWeight();
-        if (tempLoadCellWeight < MIN_CUP_WEIGHT)
-        {
-            throw CupNotFoundException("No cup found on scale.");
-        } // if (loadCell.getCurrentWeight() < MIN_CUP_WEIGHT)
-    }
+    int startWeight = loadCell.getCurrentWeight();
+    if (startWeight < 4) {
+        throw CupNotFoundException("No cup found on scale.");
+    } //if
 
+    /*Loop through each bottle and determine amount to dispense.*/
+    double totalCost = 0.0;
+    for (int i = 0; i < MOTOR_COUNT; i++)
+    {
+        if (bev.ozArr[i] > 0)
+        {
+            double actualDispensed = dispense(i, bev.ozArr[i]);
+            double unitCost = actualDispensed * bottles[i].costPerOz;
+            bottles[i].estimatedCapacity -= actualDispensed;
+            totalCost += unitCost;
+        } // if
+
+    } // for i
+
+    /*TODO: Dispensing complete, prompt user with completion and additional instructions.*/
 
 } // Machine::createBeverage()
+
+double Machine::dispense(int motorId, double oz) {
+    double beforeDispense = loadCell.getCurrentWeight();
+    Serial.println("Before dispense: " + String(beforeDispense));
+    double goalDispense = convertToScaleUnit(oz) + goalDispense;
+    Serial.println("Goal Dispense: " + String(goalDispense));
+    double currentDispense = beforeDispense;
+
+    long startRunTime = millis();
+    while (currentDispense < goalDispense) {
+        //TODO: Keep checking for user input, if its cancel then terminate
+        //TODO: RUN MOTOR (Get the serial digital output running) (write on)
+        currentDispense = loadCell.getCurrentWeight();
+        long curTime = millis();
+        if (curTime - startRunTime > MOTOR_TIMEOUT_MS) {
+            //TODO: STOP MOTOR
+            bottles[motorId].active = false; //disable bottle
+            throw MotorTimeoutException("Motor " + std::to_string(motorId) + " timed out at " + std::to_string(curTime - startRunTime) + " milliseconds and at  " + std::to_string(currentDispense) + " oz.");
+        } // if
+        //if someone suddenly removes the cup (weight decreases substantially) the loop should terminate to avoid mess
+        if (currentDispense < beforeDispense - CUP_REMOVAL_THRESHOLD) {
+            //throw CupRemovedException with a string that contains some detail about the weight
+            //TODO: STOP MOTOR 
+            //throw CupRemovedException("Cup removed during dispensing. Before: " + std::to_string(beforeDispense) + " After: " + std::to_string(currentDispense) + "Const Cup Removal Threshold: " + std::to_string(CUP_REMOVAL_THRESHOLD));
+            throw CupRemovedException("Cup removed during dispensing.", convertToOz(currentDispense - beforeDispense));
+        } // if
+
+    } // while
+    //TODO: STOP MOTOR
+    return convertToOz(currentDispense - beforeDispense);
+} // Machine::dispense()
+
+double Machine::convertToScaleUnit(double oz) {
+    return oz * SCALE_OZ_FACTOR;
+} // Machine::convertToScaleUnit()
+
+double Machine::convertToOz(double scaleUnit) {
+    return scaleUnit / SCALE_OZ_FACTOR;
+} // Machine::convertToOz()
+
 
 void Machine::calibrate()
 {
