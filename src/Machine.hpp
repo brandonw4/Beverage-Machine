@@ -110,6 +110,11 @@ struct Bottle
     double estimatedCapacity = 0.0;
 };
 
+struct InputData {
+    String cmd;
+    int id;
+}; // struct InputData
+
 class TouchControl
 {
     /*
@@ -124,6 +129,11 @@ class TouchControl
     7: ctail1
     8: dispense
     */
+   /*
+   Colors:
+   -White: 65535
+   -Black: 0
+   */
 private:
     void touchOutput(String str); // touch screen requires specific format
     void flushStream()
@@ -134,7 +144,7 @@ private:
     };
 
 public:
-    String checkForInput();
+    //String checkForInput();
     int currentPage = 0;
 
     void printDebug(String str)
@@ -158,6 +168,7 @@ public:
         send.concat(pageNum);
         touchOutput(send);
         currentPage = pageNum.toInt();
+        Serial.println("Changed to page: " + String(pageNum));
     }; // void changePage()
 
 }; // class TouchControl
@@ -193,7 +204,7 @@ class Machine
 {
 private:
     //const size_t PASSCODE[] = {1, 0, 2, 5}; // ik im not proud of this  
-    const int CALIBRATION_WAIT_MS = 3000; // Time to give user to see message, then set a calibration value.
+    const int CALIBRATION_WAIT_MS = 4500; // Time to give user to see message, then set a calibration value.
     const int MIN_CUP_WEIGHT = 5; // Minimum weight of cup to be considered a cup.
     
     //const double SCALE_OZ_FACTOR = 20.525 - HOSE_LAG_VALUE;
@@ -213,6 +224,7 @@ private:
     bool authShots = false;     // require auth on shots
     bool priceMode = true;      // TODO: Add to config
     bool requirePayment = true; // TODO: Add to config (priceMode must be true also)
+    bool debugMainPageOutput = true; //Display debug info on main page
 
     // load cell
     LoadScale loadCell;
@@ -232,6 +244,9 @@ private:
     double convertToOz(double scaleUnit);
     void createBeverage(int id);
     double dispense(int motorId, double oz);
+
+    //Touchscreen other functions
+    InputData checkForInput();
 
 public:
     TouchControl touchscreen;

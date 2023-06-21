@@ -71,18 +71,7 @@ void Machine::boot()
     try calibrating, if cancelled or failed, try again, then reboot.
     */
     calibrate();
-    Serial.println("DEBUG: place test");
-    delay(1000);
 
-    // try {
-    //     createBeverage(0);
-    // }
-    // catch (std::exception &e) {
-    //     Serial.println(e.what());
-    // }
-    // catch (...) {
-    //     Serial.println("Unknown error.");
-    // }
     loadMainMenu();
 } // Machine::boot()
 
@@ -190,17 +179,46 @@ void Machine::initData()
     data.close();
 } // Machine::initData()
 
-String TouchControl::checkForInput()
-{
-    String touchInput = "";
+InputData Machine::checkForInput() {
+    InputData input;
+    if (Serial2.available()) {
+        String inputStr = Serial2.readString();
+        if (inputStr.isEmpty()) {
+            return input;
+        }
+        Serial.println("Data from display: " + inputStr); // print the received data
+        inputStr.trim(); // remove any whitespace
 
-    if (Serial2.available() > 0)
-    {
-        touchInput = Serial2.readStringUntil('@');
-        Serial.println("Data from display: " + touchInput);
-    } // while serial available
+        String printableStr = "";
+        for (int i = 0; i < inputStr.length(); i++) {
+            if (isPrintable(inputStr.charAt(i))) {
+                printableStr += inputStr.charAt(i);
+            }
+        }
 
-    return touchInput;
+        int separatorIndex = printableStr.indexOf('@');
+
+        // if we didn't find the '@' symbol, throw an error
+        if (separatorIndex == -1) {
+            Serial.println("Expected a '@' in the command, but received: " + printableStr);
+            return input;
+        }
+
+        // split the command into two parts
+        String command = printableStr.substring(1, separatorIndex); // extract the command from the input string
+        command.trim(); // remove any whitespace
+
+        String idStr = printableStr.substring(separatorIndex + 1, separatorIndex + 3);
+        idStr.trim(); // remove any whitespace
+
+        // convert the ID to an integer
+        int id = idStr.toInt();
+
+        // store the command and ID in the struct
+        input.cmd = command;
+        input.id = id;
+    }
+    return input;
 }
 
 void TouchControl::touchOutput(String str)
@@ -247,8 +265,12 @@ void LoadScale::initLoadCell()
 void LoadScale::tareScale()
 {
     //tareWeight = scale.read();
-    tareWeight = LoadCell.getData();
+    Serial.println("RUNNING tareScale()");
+    Serial.println("Current weight: " + String(LoadCell.getData()));
+    //tareWeight = LoadCell.getData();
     LoadCell.tareNoDelay();
+    Serial.println("Post tareNoDelay weight: " + String(LoadCell.getData()));
+    //Serial.println("Tare weight: " + String(tareWeight));
 } // LoadScale::tareScale()
 
 int LoadScale::getCurrentWeight()
@@ -260,7 +282,7 @@ int LoadScale::getCurrentWeight()
     
     //return LoadCell.getData();
     LoadCell.update();
-    return LoadCell.getData() - tareWeight;
+    return LoadCell.getData();
 } // LoadScale::getCurrentWeight()
 
 void Machine::loadMainMenu()
@@ -285,6 +307,12 @@ void Machine::loadMainMenu()
             touchscreen.controlCurPage(itemId, "bco", "1024");
         }
     } // for bottle
+    if (debugMainPageOutput) {
+        touchscreen.controlCurPage("debugTitle", "txt", "Debug Sys. Output: ");
+        String debugDataStr;
+        //debugDataStr.concat()
+        touchscreen.controlCurPage("debugData", "txt", "No Data, Implement");
+    } // if debugMainPageOutput
 } // Machine::loadMainMenu()
 
 void Machine::loadAdminMenu()
@@ -325,77 +353,134 @@ void Machine::loadCocktailMenu()
     }     // for each beverage
 } // Machine::loadCocktailMenu()
 
+// void Machine::inputDecisionTree()
+// {
+
+//     // while(true) {
+//     //     Serial.println(loadCell.getCurrentWeight());
+//     // }
+
+
+//     if (Serial2.available())
+//     {
+//         String input = Serial2.readString();
+//         if (input.isEmpty())
+//         {
+//             return;
+//         }
+//         Serial.println("Data from display: " + input); // print the received data
+//         input.trim();                                  // remove any whitespace
+//         int separatorIndex = input.indexOf('@');
+
+//         // if we didn't find the '@' symbol, throw an error
+//         if (separatorIndex == -1)
+//         {
+//             Serial.println("Expected a '@' in the command, but received: " + input);
+//             return;
+//         }
+
+//         // split the command into two parts
+//         String command = input.substring(0, separatorIndex);
+//         command.trim(); // remove any whitespace
+
+//         String pageNumberStr = input.substring(separatorIndex + 1);
+//         pageNumberStr.trim(); // remove any whitespace
+
+//         // if the command is not '!gopage', throw an error
+//         if (command != "!gopage")
+//         {
+//             Serial.println("Received an invalid command: " + command);
+//             return;
+//         }
+
+//         // try to convert the page number to an integer
+//         int pageNumber = pageNumberStr.toInt();
+
+//         // if the page number is not between 0 and 99, throw an error
+//         if (pageNumber < 0 || pageNumber > 99)
+//         {
+//             Serial.println("Page number must be between 0 and 99, but received: " + pageNumberStr);
+//             return;
+//         }
+
+//         // if we got this far, everything is good, so print the page number
+//         Serial.print("Going to page ");
+//         Serial.println(pageNumber);
+
+//         switch (pageNumber)
+//         {
+//         case 1:
+//             loadMainMenu();
+//             break;
+//         case 4:
+//             loadAdminMenu();
+//             break;
+//         case 7:
+//             loadCocktailMenu();
+//             break;
+//         default:
+//             Serial.println("Invalid page number: " + pageNumber);
+//             break;
+//         } // switch(pageNumber
+//     }
+// } // Machine::inputDecisionTree()
+
 void Machine::inputDecisionTree()
 {
+    InputData input = checkForInput(); // call the checkForInput() function to get the input data
 
-    // while(true) {
-    //     Serial.println(loadCell.getCurrentWeight());
-    // }
-
-
-    if (Serial2.available())
+    if (!input.cmd.isEmpty())
     {
-        String input = Serial2.readString();
-        if (input.isEmpty())
+        Serial.print("Received command: ");
+        Serial.println(input.cmd);
+        Serial.print("Received ID: ");
+        Serial.println(input.id);
+
+        // perform the appropriate action based on the command and ID
+        if (input.cmd == "gopage")
         {
-            return;
+            // try to convert the page number to an integer
+            int pageNumber = input.id;
+
+            // if the page number is not between 0 and 99, throw an error
+            if (pageNumber < 0 || pageNumber > 99)
+            {
+                Serial.println("Page number must be between 0 and 99, but received: " + String(pageNumber));
+                return;
+            }
+
+            // if we got this far, everything is good, so print the page number
+            Serial.print("Going to page ");
+            Serial.println(pageNumber);
+
+            switch (pageNumber)
+            {
+            case 1:
+                loadMainMenu();
+                break;
+            case 4:
+                loadAdminMenu();
+                break;
+            case 7:
+                loadCocktailMenu();
+                break;
+            
+            // add more cases here for other page numbers
+            default:
+                Serial.println("Invalid page number: " + String(pageNumber));
+                break;
+            }
         }
-        Serial.println("Data from display: " + input); // print the received data
-        input.trim();                                  // remove any whitespace
-        int separatorIndex = input.indexOf('@');
-
-        // if we didn't find the '@' symbol, throw an error
-        if (separatorIndex == -1)
+        else
         {
-            Serial.println("Expected a '@' in the command, but received: " + input);
-            return;
+            Serial.println("Received an invalid command: " + input.cmd);
         }
+    } //if gopage
+    else if (input.cmd == "bev") {
+        int bevId = input.id;
 
-        // split the command into two parts
-        String command = input.substring(0, separatorIndex);
-        command.trim(); // remove any whitespace
-
-        String pageNumberStr = input.substring(separatorIndex + 1);
-        pageNumberStr.trim(); // remove any whitespace
-
-        // if the command is not '!gopage', throw an error
-        if (command != "!gopage")
-        {
-            Serial.println("Received an invalid command: " + command);
-            return;
-        }
-
-        // try to convert the page number to an integer
-        int pageNumber = pageNumberStr.toInt();
-
-        // if the page number is not between 0 and 99, throw an error
-        if (pageNumber < 0 || pageNumber > 99)
-        {
-            Serial.println("Page number must be between 0 and 99, but received: " + pageNumberStr);
-            return;
-        }
-
-        // if we got this far, everything is good, so print the page number
-        Serial.print("Going to page ");
-        Serial.println(pageNumber);
-
-        switch (pageNumber)
-        {
-        case 1:
-            loadMainMenu();
-            break;
-        case 4:
-            loadAdminMenu();
-            break;
-        case 7:
-            loadCocktailMenu();
-            break;
-        default:
-            Serial.println("Invalid page number: " + pageNumber);
-            break;
-        } // switch(pageNumber
-    }
-} // Machine::inputDecisionTree()
+    } //elif bev
+}
 
 void Machine::createBeverage(int id)
 {
@@ -494,12 +579,27 @@ void Machine::calibrate()
 
     // Load Calibrate Page
     touchscreen.changePage("8"); // Using the dispense page
+    touchscreen.controlCurPage("t0", "txt", "Calibrating...");
+    touchscreen.controlCurPage("t1", "txt", "!!CLEAR, DON'T TOUCH SCALE!!");
     /*
     Print out a message about calibration. (Clear the scale etc.)
     FUTURE: If the scale always outputs a raw value, maybe save it so when we calibrate it should be close to that.
     */
 
-    //delay(CALIBRATION_WAIT_MS);
+    //timed monitored delay, keep checking for input during the delay
+    Serial.println("CALIBRATE() Waiting " + String(CALIBRATION_WAIT_MS) + " milliseconds for user to cancel.");
+    unsigned long startTime = millis();
+    InputData dataIn = checkForInput();
+    while (millis() - startTime < CALIBRATION_WAIT_MS) {
+        if (dataIn.cmd == "cancel") {
+            Serial.println("Calibration cancelled.");
+            Serial.println("Current weight: " + String(loadCell.getCurrentWeight()));
+            return;
+        }
+    dataIn = checkForInput();
+  } // while
+
     loadCell.tareScale();
 
+    loadMainMenu();
 } // Machine::calibrate()
