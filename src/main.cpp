@@ -18,7 +18,10 @@ void loop() {
         Serial.println(e.what());
     } catch (...) {
         Serial.println("An unexpected error occurred.");
-    }   
+    }
+    if (bevMaker.debugPrintWeightSerial) {
+        Serial.println("Weight: " + String(bevMaker.loadCell.getCurrentWeight()));
+    }
 }
 
 

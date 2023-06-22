@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
-//#include <HX711.h>
+// #include <HX711.h>
 #include <HX711_ADC.h>
 #include <stdexcept>
 #include <vector>
@@ -15,7 +15,7 @@
 // HX711 circuit wiring
 const int LOADCELL_DOUT_PIN = 32;
 const int LOADCELL_SCK_PIN = 33;
-const int STABILIZING_TIME = 400; // tare preciscion can be improved by adding a few seconds of stabilizing time
+const int STABILIZING_TIME = 3000;    // tare preciscion can be improved by adding a few seconds of stabilizing time
 const float CALIBRATION_FACTOR = 696; // this calibration factor is adjusted according to my load cell
 const uint8_t LOADCELL_GAIN = 128;
 
@@ -82,7 +82,7 @@ class CupRemovedException : public std::exception
 {
 public:
     CupRemovedException(const std::string &message, double oz)
-    : message_(message), dispensed_oz_(oz) {}
+        : message_(message), dispensed_oz_(oz) {}
 
     const char *what() const noexcept override
     {
@@ -93,12 +93,50 @@ public:
     {
         return dispensed_oz_;
     }
+    void set_priceDispensed(double price)
+    {
+        priceDispensed = price;
+    }
+    double get_priceDispensed() const noexcept
+    {
+        return priceDispensed;
+    }
 
 private:
     std::string message_;
     double dispensed_oz_;
+    double priceDispensed = 0.0;
 };
 
+class BeverageCancelledException : public std::exception
+{
+public:
+    BeverageCancelledException(const std::string &message, double oz)
+        : message_(message), dispensed_oz_(oz) {}
+
+    const char *what() const noexcept override
+    {
+        return message_.c_str();
+    }
+
+    double get_dispensed_oz() const noexcept
+    {
+        return dispensed_oz_;
+    }
+    void set_priceDispensed(double price)
+    {
+        priceDispensed = price;
+    }
+    double get_priceDispensed() const noexcept
+    {
+        return priceDispensed;
+    }
+
+private:
+    std::string message_;
+    double dispensed_oz_;
+    double priceDispensed = 0.0;
+};
 
 struct Bottle
 {
@@ -110,7 +148,8 @@ struct Bottle
     double estimatedCapacity = 0.0;
 };
 
-struct InputData {
+struct InputData
+{
     String cmd;
     int id;
 }; // struct InputData
@@ -129,11 +168,11 @@ class TouchControl
     7: ctail1
     8: dispense
     */
-   /*
-   Colors:
-   -White: 65535
-   -Black: 0
-   */
+    /*
+    Colors:
+    -White: 65535
+    -Black: 0
+    */
 private:
     void touchOutput(String str); // touch screen requires specific format
     void flushStream()
@@ -144,7 +183,7 @@ private:
     };
 
 public:
-    //String checkForInput();
+    // String checkForInput();
     int currentPage = 0;
 
     void printDebug(String str)
@@ -191,25 +230,27 @@ private:
     int tareWeight = 0;
     // FUTURE: var. to track what the weight scale usually is in prod. if its much higher, there's prob. smth. on there.
 public:
-    LoadScale() : LoadCell(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN) {
+    LoadScale() : LoadCell(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN)
+    {
         // Constructor to initialize the LoadCell object with the provided pins
     }
     void initLoadCell();
     void tareScale();
     int getCurrentWeight();
-
 };
 
 class Machine
 {
 private:
-    //const size_t PASSCODE[] = {1, 0, 2, 5}; // ik im not proud of this  
-    const int CALIBRATION_WAIT_MS = 4500; // Time to give user to see message, then set a calibration value.
-    const int MIN_CUP_WEIGHT = 5; // Minimum weight of cup to be considered a cup.
-    
-    //const double SCALE_OZ_FACTOR = 20.525 - HOSE_LAG_VALUE;
+    // const size_t PASSCODE[] = {1, 0, 2, 5}; // ik im not proud of this
+    const int CALIBRATION_WAIT_MS = 4500;  // Time to give user to see message, then set a calibration value.
+    const int MIN_CUP_WEIGHT = 5;          // Minimum weight of cup to be considered a cup.
+    const int COUNTDOWN_MSG_MS = 4000;     // MUST BE FULL SECONDS (1000, 2000, etc)
+    const int COUNTDOWN_BEV_MSG_MS = 8000; // MUST BE FULL SECONDS (1000, 2000, etc)
+
+    // const double SCALE_OZ_FACTOR = 20.525 - HOSE_LAG_VALUE;
     const double SCALE_OZ_FACTOR = 20.525;
-    const int MOTOR_TIMEOUT_MS = 10000; // 10 seconds
+    const int MOTOR_TIMEOUT_MS = 12000; // 10 seconds
     const double CUP_REMOVAL_THRESHOLD = 2;
 
     // SD CARD
@@ -220,14 +261,12 @@ private:
 
     std::vector<Bottle> bottles;
     std::vector<Beverage> beverages;
-    bool authCocktail = false;  // require auth on cocktail
-    bool authShots = false;     // require auth on shots
-    bool priceMode = true;      // TODO: Add to config
-    bool requirePayment = true; // TODO: Add to config (priceMode must be true also)
-    bool debugMainPageOutput = true; //Display debug info on main page
+    bool authCocktail = false;       // require auth on cocktail
+    bool authShots = false;          // require auth on shots
+    bool priceMode = true;           // TODO: Add to config
+    bool requirePayment = true;      // TODO: Add to config (priceMode must be true also)
+    bool debugMainPageOutput = true; // Display debug info on main page
 
-    // load cell
-    LoadScale loadCell;
     void calibrate();
 
     // filedata
@@ -240,16 +279,23 @@ private:
     void loadAdminMenu();
     void loadCocktailMenu();
 
+    // will run countdown timer after val string. if displayCountdown is false, will just display text on page and then change
+    // DESTINATION PAGE MUST BE AFTER THIS FUNCTION CALL, it does NOT change the page!
+    void countdownMsg(int timeMillis, bool displayCountdown, String item, String destPageName);
+
     double convertToScaleUnit(double oz);
     double convertToOz(double scaleUnit);
     void createBeverage(int id);
     double dispense(int motorId, double oz);
 
-    //Touchscreen other functions
+    // Touchscreen other functions
     InputData checkForInput();
 
 public:
     TouchControl touchscreen;
+    // load cell
+    LoadScale loadCell;
+    bool debugPrintWeightSerial = true; // in loop() print the weight to serial
     void boot();
     void makeSelection();
     void inputDecisionTree();
