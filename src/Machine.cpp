@@ -36,6 +36,7 @@ void Machine::boot()
         // TODO: trigger reboot w/delay
 
     } // catch
+    
 
     Serial.println("Boot successful.");
     Serial.println("authCocktail: " + String(authCocktail) + " authShots: " + String(authShots));
@@ -115,7 +116,7 @@ void Machine::initBottles()
     for (size_t i = 0; i < MOTOR_COUNT; i++)
     {
         String path = "/bottle-" + String(i) + ".txt";
-        File curBottle = SD.open(path);
+        File curBottle = SD.open(path.c_str());
         if (!curBottle)
         {
             String msg = "ERROR 102: " + path + " FILE ERROR.";
@@ -440,20 +441,25 @@ void Machine::inputDecisionTree()
                 createBeverage(bevId);
             }
             catch (BeverageDisabledException &e)
-            {
+            { //63488 red
+                touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
+                touchscreen.controlCurPage("t2", "txt", "");
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 loadCocktailMenu();
             }
             catch (BottleDisabledException &e)
             {
+                touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
+                touchscreen.controlCurPage("t2", "txt", "");
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 // TODO: Handle data change. Disable beverage that was called with this bottle.
                 loadCocktailMenu();
             }
             catch (CupNotFoundException &e)
             {
+                touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
@@ -461,6 +467,7 @@ void Machine::inputDecisionTree()
             }
             catch (MotorTimeoutException &e)
             {
+                touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
@@ -469,6 +476,7 @@ void Machine::inputDecisionTree()
             }
             catch (CupRemovedException &e)
             {
+                touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
@@ -479,6 +487,7 @@ void Machine::inputDecisionTree()
             }
             catch (BeverageCancelledException &e)
             {
+                touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
