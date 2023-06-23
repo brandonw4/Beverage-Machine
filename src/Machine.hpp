@@ -6,9 +6,9 @@
 #include <SD.h>
 // #include <HX711.h>
 #include <HX711_ADC.h>
-#include <stdexcept>
 #include <vector>
 #include <sstream>
+#include "MachineExceptions.hpp"
 
 #define CS_PIN 5
 
@@ -22,121 +22,6 @@ const uint8_t LOADCELL_GAIN = 128;
 const size_t MOTOR_COUNT = 8;
 const size_t BEV_COUNT = 12;
 
-class CupNotFoundException : public std::exception
-{
-public:
-    CupNotFoundException(const std::string &message) : message_(message) {}
-
-    const char *what() const noexcept override
-    {
-        return message_.c_str();
-    }
-
-private:
-    std::string message_;
-};
-
-class BeverageDisabledException : public std::exception
-{
-public:
-    BeverageDisabledException(const std::string &message) : message_(message) {}
-
-    const char *what() const noexcept override
-    {
-        return message_.c_str();
-    }
-
-private:
-    std::string message_;
-};
-
-class BottleDisabledException : public std::exception
-{
-public:
-    BottleDisabledException(const std::string &message) : message_(message) {}
-
-    const char *what() const noexcept override
-    {
-        return message_.c_str();
-    }
-
-private:
-    std::string message_;
-};
-
-class MotorTimeoutException : public std::exception
-{
-public:
-    MotorTimeoutException(const std::string &message) : message_(message) {}
-
-    const char *what() const noexcept override
-    {
-        return message_.c_str();
-    }
-
-private:
-    std::string message_;
-};
-
-class CupRemovedException : public std::exception
-{
-public:
-    CupRemovedException(const std::string &message, double oz)
-        : message_(message), dispensed_oz_(oz) {}
-
-    const char *what() const noexcept override
-    {
-        return message_.c_str();
-    }
-
-    double get_dispensed_oz() const noexcept
-    {
-        return dispensed_oz_;
-    }
-    void set_priceDispensed(double price)
-    {
-        priceDispensed = price;
-    }
-    double get_priceDispensed() const noexcept
-    {
-        return priceDispensed;
-    }
-
-private:
-    std::string message_;
-    double dispensed_oz_;
-    double priceDispensed = 0.0;
-};
-
-class BeverageCancelledException : public std::exception
-{
-public:
-    BeverageCancelledException(const std::string &message, double oz)
-        : message_(message), dispensed_oz_(oz) {}
-
-    const char *what() const noexcept override
-    {
-        return message_.c_str();
-    }
-
-    double get_dispensed_oz() const noexcept
-    {
-        return dispensed_oz_;
-    }
-    void set_priceDispensed(double price)
-    {
-        priceDispensed = price;
-    }
-    double get_priceDispensed() const noexcept
-    {
-        return priceDispensed;
-    }
-
-private:
-    std::string message_;
-    double dispensed_oz_;
-    double priceDispensed = 0.0;
-};
 
 struct Bottle
 {
@@ -172,6 +57,9 @@ class TouchControl
     Colors:
     -White: 65535
     -Black: 0
+    -Yellow:
+    -Red: 63488
+    -Green: 1024
     */
 private:
     void touchOutput(String str); // touch screen requires specific format
@@ -226,7 +114,6 @@ public:
 class LoadScale
 {
 private:
-    HX711_ADC LoadCell;
     int tareWeight = 0;
     // FUTURE: var. to track what the weight scale usually is in prod. if its much higher, there's prob. smth. on there.
 public:
@@ -234,6 +121,7 @@ public:
     {
         // Constructor to initialize the LoadCell object with the provided pins
     }
+    HX711_ADC LoadCell;
     void initLoadCell();
     void tareScale();
     int getCurrentWeight();
@@ -295,7 +183,8 @@ public:
     TouchControl touchscreen;
     // load cell
     LoadScale loadCell;
-    bool debugPrintWeightSerial = true; // in loop() print the weight to serial
+    bool debugPrintWeightSerial = false; // in loop() print the weight to serial
+    bool debugPrintWeightSerialDispense = true;
     void boot();
     void makeSelection();
     void inputDecisionTree();

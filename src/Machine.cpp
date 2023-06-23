@@ -312,7 +312,6 @@ int LoadScale::getCurrentWeight()
     // return scale.read_average(2) - tareWeight;
     // return scale.read() - tareWeight;
 
-    // return LoadCell.getData();
     LoadCell.update();
     return LoadCell.getData();
 } // LoadScale::getCurrentWeight()
@@ -624,6 +623,9 @@ double Machine::dispense(int motorId, double oz)
             // throw CupRemovedException("Cup removed during dispensing. Before: " + std::to_string(beforeDispense) + " After: " + std::to_string(currentDispense) + "Const Cup Removal Threshold: " + std::to_string(CUP_REMOVAL_THRESHOLD));
             throw CupRemovedException("Cup removed during dispensing.", convertToOz(currentDispense - beforeDispense));
         } // if
+        if (debugPrintWeightSerialDispense) {
+            Serial.println("Current Dispense: " + String(currentDispense));
+        } //if
 
     } // while
     // TODO: STOP MOTOR

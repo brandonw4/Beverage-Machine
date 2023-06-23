@@ -19,7 +19,11 @@ void loop() {
     } catch (...) {
         Serial.println("An unexpected error occurred.");
     }
-    if (bevMaker.debugPrintWeightSerial) {
+    
+    bevMaker.loadCell.LoadCell.update(); //TODO move LoadScale out of class and into machine for this reason
+
+    if (bevMaker.debugPrintWeightSerial)
+    {
         Serial.println("Weight: " + String(bevMaker.loadCell.getCurrentWeight()));
     }
 }
