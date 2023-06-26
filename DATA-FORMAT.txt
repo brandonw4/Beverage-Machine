@@ -1,0 +1,30 @@
+Beverage data.txt file:
+name
+id (must be 0 -> const BEV_COUNT)
+Status (enabled/disabled) in the form of 0/1. 0 disabled, 1 enabled.
+Recipe/OZ from each bottle. Indexed by id. Example [1.5 0.0 0.0 0.0 0.0 0.0 0.0 6.0]. Bottle 0 would dispense 1.5oz etc.
+Additional Instructions String.
+EXAMPLE:
+Vodka Soda
+0
+1
+1.5 0.0 0.0 0.0 0.0 0.0 0.0 6.0
+Finish with lime or lemon.
+
+
+Bottles/Motors bottle-ID.txt:
+name
+id
+status 0 disabled/ 1 enabled
+isShot (to display in shot menu) 0 disabled/ 1 enabled
+costPerOz (double)
+estimatedCapacity
+#TODO ADD TOTAL CAPACITY
+
+
+Vodka
+0
+1
+1
+1.34
+6.1
