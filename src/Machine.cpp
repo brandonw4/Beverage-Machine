@@ -141,6 +141,7 @@ void Machine::initBottles()
         bottle.isShot = bottleIsShot;
         bottle.costPerOz = curBottle.readStringUntil('\n').toDouble();
         bottle.estimatedCapacity = curBottle.readStringUntil('\n').toDouble();
+        bottle.totalCapacity = curBottle.readStringUntil('\n').toDouble();
         bottles.push_back(bottle);
         curBottle.close();
     } // for i
@@ -358,15 +359,28 @@ void Machine::loadAdminMenu()
     touchscreen.controlCurPage("cauthsw", "val", String(authCocktail));
     touchscreen.controlCurPage("sauthsw", "val", String(authShots));
 
+} // Machine::loadAdminMenu()
+
+void Machine::loadMotorControlMenu() {
+    touchscreen.changePage("9");
+
     for (auto bottle : bottles)
     {
         String itemId = "sw" + String(bottle.id);
         touchscreen.controlCurPage(itemId, "val", String(bottle.active));
+        itemId = "bname" + String(bottle.id);
+        
+        touchscreen.controlCurPage(itemId, "txt", String(bottle.id) + ":" + bottle.name);
         itemId = "bcap" + String(bottle.id);
         touchscreen.controlCurPage(itemId, "txt", String(bottle.estimatedCapacity));
+        itemId = "btcap" + String(bottle.id);
+        touchscreen.controlCurPage(itemId, "txt", String(bottle.totalCapacity));
     } // for bottle
+} // Machine::loadMotorControlMenu()
 
-} // Machine::loadAdminMenu()
+void Machine::loadMotorEditMenu(int motorId) {
+    
+} // Machine::loadMotorEditMenu()
 
 void Machine::loadCocktailMenu()
 {
@@ -423,6 +437,9 @@ void Machine::inputDecisionTree()
                 break;
             case 7:
                 loadCocktailMenu();
+                break;
+            case 9:
+                loadMotorControlMenu();
                 break;
 
             // add more cases here for other page numbers

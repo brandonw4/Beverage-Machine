@@ -31,6 +31,7 @@ struct Bottle
     bool isShot = false;
     double costPerOz = 0.0;
     double estimatedCapacity = 0.0;
+    double totalCapacity = 0.0;
 };
 
 struct InputData
@@ -52,6 +53,10 @@ class TouchControl
     6: keybdB (locked)
     7: ctail1
     8: dispense
+    9: motorControl
+    10: bevControl
+    11: webControl
+    12 editMotorCap
     */
     /*
     Colors:
@@ -165,6 +170,8 @@ private:
 
     void loadMainMenu();
     void loadAdminMenu();
+    void loadMotorControlMenu();
+    void loadMotorEditMenu(int motorId);
     void loadCocktailMenu();
 
     // will run countdown timer after val string. if displayCountdown is false, will just display text on page and then change
