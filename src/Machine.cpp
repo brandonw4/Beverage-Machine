@@ -216,6 +216,52 @@ InputData Machine::checkForInput()
         String command = printableStr.substring(1, separatorIndex); // extract the command from the input string
         command.trim();                                             // remove any whitespace
 
+        // check if the command is "edCap"
+        if (currentMotorEditId != -1 && command == "edCap")
+        {
+            // split the input string into multiple parts using the '&' symbol as a separator
+            String edEstCapStr = "";
+            String edTotalCapStr = "";
+            String edPPOzStr = "";
+            int separatorIndex1 = printableStr.indexOf('&');
+            int separatorIndex2 = printableStr.indexOf('&', separatorIndex1 + 1);
+            if (separatorIndex1 != -1 && separatorIndex2 != -1)
+            {
+                edEstCapStr = printableStr.substring(separatorIndex + 1, separatorIndex1);
+                edTotalCapStr = printableStr.substring(separatorIndex1 + 1, separatorIndex2);
+                edPPOzStr = printableStr.substring(separatorIndex2 + 1);
+            }
+
+            // extract the values for edEstCap, edTotalCap, and edPPOz from the resulting substrings
+            double edEstCap = edEstCapStr.substring(edEstCapStr.indexOf('=') + 1).toDouble();
+            double edTotalCap = edTotalCapStr.substring(edTotalCapStr.indexOf('=') + 1).toDouble();
+            double edPPOz = edPPOzStr.substring(edPPOzStr.indexOf('=') + 1).toDouble();
+
+            // do something with the extracted values
+            Serial.print("Received edCap command with values, bottle ID " + String(currentMotorEditId) + ": ");
+            Serial.print("edEstCap = ");
+            Serial.print(edEstCap);
+            Serial.print(", edTotalCap = ");
+            Serial.print(edTotalCap);
+            Serial.print(", edPPOz = ");
+            Serial.println(edPPOz);
+
+            // update the bottle's estimated capacity, total capacity, and cost per oz
+            if (edEstCap != -1) {
+                bottles[currentMotorEditId].estimatedCapacity = edEstCap;
+            } //if changed
+            if (edTotalCap != -1) {
+                bottles[currentMotorEditId].totalCapacity = edTotalCap;
+            } //if changed
+            if (edPPOz != -1) {
+                bottles[currentMotorEditId].costPerOz = edPPOz;
+            } //if changed
+            
+
+            //reload the page
+            loadMotorEditMenu(currentMotorEditId);
+        } //if command == edCap
+
         String idStr = printableStr.substring(separatorIndex + 1, separatorIndex + 3);
         idStr.trim(); // remove any whitespace
 
@@ -379,7 +425,12 @@ void Machine::loadMotorControlMenu() {
 } // Machine::loadMotorControlMenu()
 
 void Machine::loadMotorEditMenu(int motorId) {
-    
+    touchscreen.changePage("12");
+    touchscreen.controlCurPage("t0", "txt", String(motorId) + ":" + bottles[motorId].name);
+    touchscreen.controlCurPage("curEstCap", "txt", String(bottles[motorId].estimatedCapacity));
+    touchscreen.controlCurPage("curTotalCap", "txt", String(bottles[motorId].totalCapacity));
+    touchscreen.controlCurPage("curPPOz", "txt", String(bottles[motorId].costPerOz));
+    currentMotorEditId = motorId;
 } // Machine::loadMotorEditMenu()
 
 void Machine::loadCocktailMenu()
@@ -513,6 +564,25 @@ void Machine::inputDecisionTree()
                 loadCocktailMenu();
             }
         } // elif bev
+        else if (input.cmd == "finish") {
+            Serial.print("Received finish command ");
+            Serial.println(input.id);
+
+            if (input.id == 12) {
+                Serial.println("recieved page 12");
+                currentMotorEditId = -1;
+                loadMotorControlMenu();
+            } // if page 12
+
+        } //else if finishGo
+        else if (input.cmd == "ebc") {
+            Serial.print("Received ebc command ");
+            Serial.println(input.id);
+            if (input.id < 0 || input.id > MOTOR_COUNT) {
+                throw("Invalid ebc bottle id: " + String(input.id));
+            } // if invalid id
+            loadMotorEditMenu(input.id);
+        } // else if ebc (editBottleCapacity)
         else
         {
             Serial.println("Received an invalid command: " + input.cmd);

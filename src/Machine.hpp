@@ -172,6 +172,7 @@ private:
     void loadAdminMenu();
     void loadMotorControlMenu();
     void loadMotorEditMenu(int motorId);
+    int currentMotorEditId = -1;
     void loadCocktailMenu();
 
     // will run countdown timer after val string. if displayCountdown is false, will just display text on page and then change
