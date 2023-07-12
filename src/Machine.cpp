@@ -1,5 +1,11 @@
 #include "Machine.hpp"
 
+Machine::Machine(size_t bottleCount, size_t bevCount)
+{
+    bottles.reserve(bottleCount);
+    beverages.reserve(bevCount);
+} // Machine::Machine()
+
 void Machine::boot()
 {
     Serial.begin(115200);
@@ -10,10 +16,6 @@ void Machine::boot()
     touchscreen.changePage("0"); // change to boot page
     touchscreen.controlCurPage("t3", "txt", "Serial 2 connected on 115200");
 
-    // reserve and fill vectors
-    bottles.reserve(MOTOR_COUNT);
-    beverages.reserve(BEV_COUNT);
-    // TODO: These need to be filled from SD Card data
     try
     {
         initSD();
@@ -22,6 +24,8 @@ void Machine::boot()
         initData();
         loadCell.initLoadCell();
         touchscreen.controlCurPage("t3", "txt", "Scale init.");
+        initWifi();
+        initMqtt();
     } // try
     catch (String msg)
     {
@@ -36,7 +40,6 @@ void Machine::boot()
         // TODO: trigger reboot w/delay
 
     } // catch
-    
 
     Serial.println("Boot successful.");
     Serial.println("authCocktail: " + String(authCocktail) + " authShots: " + String(authShots));
@@ -247,20 +250,22 @@ InputData Machine::checkForInput()
             Serial.println(edPPOz);
 
             // update the bottle's estimated capacity, total capacity, and cost per oz
-            if (edEstCap != -1) {
+            if (edEstCap != -1)
+            {
                 bottles[currentMotorEditId].estimatedCapacity = edEstCap;
-            } //if changed
-            if (edTotalCap != -1) {
+            } // if changed
+            if (edTotalCap != -1)
+            {
                 bottles[currentMotorEditId].totalCapacity = edTotalCap;
-            } //if changed
-            if (edPPOz != -1) {
+            } // if changed
+            if (edPPOz != -1)
+            {
                 bottles[currentMotorEditId].costPerOz = edPPOz;
-            } //if changed
-            
+            } // if changed
 
-            //reload the page
+            // reload the page
             loadMotorEditMenu(currentMotorEditId);
-        } //if command == edCap
+        } // if command == edCap
 
         String idStr = printableStr.substring(separatorIndex + 1, separatorIndex + 3);
         idStr.trim(); // remove any whitespace
@@ -407,7 +412,8 @@ void Machine::loadAdminMenu()
 
 } // Machine::loadAdminMenu()
 
-void Machine::loadMotorControlMenu() {
+void Machine::loadMotorControlMenu()
+{
     touchscreen.changePage("9");
 
     for (auto bottle : bottles)
@@ -415,7 +421,7 @@ void Machine::loadMotorControlMenu() {
         String itemId = "sw" + String(bottle.id);
         touchscreen.controlCurPage(itemId, "val", String(bottle.active));
         itemId = "bname" + String(bottle.id);
-        
+
         touchscreen.controlCurPage(itemId, "txt", String(bottle.id) + ":" + bottle.name);
         itemId = "bcap" + String(bottle.id);
         touchscreen.controlCurPage(itemId, "txt", String(bottle.estimatedCapacity));
@@ -424,7 +430,8 @@ void Machine::loadMotorControlMenu() {
     } // for bottle
 } // Machine::loadMotorControlMenu()
 
-void Machine::loadMotorEditMenu(int motorId) {
+void Machine::loadMotorEditMenu(int motorId)
+{
     touchscreen.changePage("12");
     touchscreen.controlCurPage("t0", "txt", String(motorId) + ":" + bottles[motorId].name);
     touchscreen.controlCurPage("curEstCap", "txt", String(bottles[motorId].estimatedCapacity));
@@ -508,7 +515,7 @@ void Machine::inputDecisionTree()
                 createBeverage(bevId);
             }
             catch (BeverageDisabledException &e)
-            { //63488 red
+            { // 63488 red
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
@@ -564,21 +571,25 @@ void Machine::inputDecisionTree()
                 loadCocktailMenu();
             }
         } // elif bev
-        else if (input.cmd == "finish") {
+        else if (input.cmd == "finish")
+        {
             Serial.print("Received finish command ");
             Serial.println(input.id);
 
-            if (input.id == 12) {
+            if (input.id == 12)
+            {
                 Serial.println("recieved page 12");
                 currentMotorEditId = -1;
                 loadMotorControlMenu();
             } // if page 12
 
-        } //else if finishGo
-        else if (input.cmd == "ebc") {
+        } // else if finishGo
+        else if (input.cmd == "ebc")
+        {
             Serial.print("Received ebc command ");
             Serial.println(input.id);
-            if (input.id < 0 || input.id > MOTOR_COUNT) {
+            if (input.id < 0 || input.id > MOTOR_COUNT)
+            {
                 throw("Invalid ebc bottle id: " + String(input.id));
             } // if invalid id
             loadMotorEditMenu(input.id);
@@ -710,9 +721,10 @@ double Machine::dispense(int motorId, double oz)
             // throw CupRemovedException("Cup removed during dispensing. Before: " + std::to_string(beforeDispense) + " After: " + std::to_string(currentDispense) + "Const Cup Removal Threshold: " + std::to_string(CUP_REMOVAL_THRESHOLD));
             throw CupRemovedException("Cup removed during dispensing.", convertToOz(currentDispense - beforeDispense));
         } // if
-        if (debugPrintWeightSerialDispense) {
+        if (debugPrintWeightSerialDispense)
+        {
             Serial.println("Current Dispense: " + String(currentDispense));
-        } //if
+        } // if
 
     } // while
     // TODO: STOP MOTOR
@@ -760,3 +772,81 @@ void Machine::calibrate()
 
     loadMainMenu();
 } // Machine::calibrate()
+
+void Machine::initWifi()
+{
+    // TODO: read in wifi ssid from file
+    const char *SSID = "TallDolphin";
+    const char *PWD = "3138858442";
+    Serial.println("Connecting to " + String(SSID) + "...");
+    WiFi.begin(SSID, PWD);
+    int wifiTimeout = millis();
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        if (millis() - wifiTimeout > WIFI_TIMEOUT_MS)
+        {
+            Serial.println("Wifi connection timed out.");
+            throw WifiFailedInit("Wifi connection timed out. SSID: " + std::string(SSID) + " PWD: " + std::string(PWD));
+        } // if
+        delay(500);
+        Serial.print(".");
+    } // while
+    Serial.println("Connected to: " + String(SSID) + " IP: " + String(WiFi.localIP()));
+    touchscreen.controlCurPage("t3", "txt", "Init Wifi. SSID: " + String(SSID) + " IP: " + String(WiFi.localIP()));
+    randomSeed(micros());
+
+} // Machine::initWifi()
+
+void Machine::initMqtt()
+{
+    wifiClient.setCACert((const char *)Secrets::CERT);
+    mqttClient.setClient(wifiClient);
+    mqttClient.setServer(Secrets::MQTT_SERVER, MQTT_PORT);
+    std::function<void(char *, uint8_t *, unsigned int)> func = std::bind(&Machine::mqttCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+    mqttClient.setCallback(func);
+    try
+    {
+        connectMqtt();
+    }
+    catch (MqttFailedInit &e)
+    {
+        Serial.println(e.what());
+    }
+    touchscreen.controlCurPage("t3", "txt", "Init Mqtt.");
+} // Machine::initMqtt()
+
+void Machine::connectMqtt()
+{
+    int mqttTimeout = millis();
+    Serial.println("Reconnecting to MQTT Broker..");
+    while (!mqttClient.connected())
+    {
+        if (millis() - mqttTimeout > MQTT_TIMEOUT_MS)
+        {
+            Serial.println("MQTT connection timed out.");
+            throw MqttFailedInit("MQTT connection timed out.");
+        } // if
+
+        String clientId = "ESP32Client-";
+        clientId += String(random(0xffff), HEX);
+
+        if (mqttClient.connect(clientId.c_str(), Secrets::MQTT_USER, Secrets::MQTT_PASS))
+        {
+            Serial.println("Connected.");
+            // subscribe to topic
+            mqttClient.subscribe("/test/topic");
+        }
+    }
+} // Machine::connectMqtt()
+
+void Machine::mqttCallback(char *topic, byte *payload, unsigned int length)
+{
+    // TODO: handle incoming data
+    Serial.print("Callback - ");
+    Serial.print("Message:");
+    for (int i = 0; i < length; i++)
+    {
+        Serial.print((char)payload[i]);
+    }
+    Serial.println();
+} // Machine::mqttCallback()
