@@ -184,18 +184,42 @@ void Machine::initData()
     data.close();
 } // Machine::initData()
 
-InputData Machine::checkForInput()
+void Machine::loopCheckSerial()
 {
-    InputData input;
-    if (Serial2.available())
+    std::vector<InputData> inputs = checkForInput(); // call the checkForInput() function to get the input data
+    if (inputs[0].cmd.isEmpty())
     {
-        String inputStr = Serial2.readString();
-        if (inputStr.isEmpty())
-        {
-            return input;
-        }
-        Serial.println("Data from display: " + inputStr); // print the received data
-        inputStr.trim();                                  // remove any whitespace
+        return;
+    }                          // if cmd empty
+    inputDecisionTree(inputs); // call the inputDecisionTree() function to process the input data
+} // Machine::loopCheckSerial()
+
+std::vector<InputData> Machine::checkForInput()
+{
+
+    if (!Serial2.available())
+    {
+        return std::vector<InputData>({InputData()});
+    }
+
+    String inputStr = Serial2.readString();
+    if (inputStr.isEmpty())
+    {
+        return std::vector<InputData>({InputData()});
+    }
+    return formatInputString(inputStr);
+}
+
+std::vector<InputData> Machine::formatInputString(String inputStr)
+{
+    std::vector<InputData> inputs;
+    InputData input;
+    inputs.push_back(input);
+    // if short command format
+    if (inputStr[0] == '!')
+    {
+        Serial.println("Short command: " + inputStr); // print the received data
+        inputStr.trim();                              // remove any whitespace
 
         String printableStr = "";
         for (int i = 0; i < inputStr.length(); i++)
@@ -212,7 +236,7 @@ InputData Machine::checkForInput()
         if (separatorIndex == -1)
         {
             Serial.println("Expected a '@' in the command, but received: " + printableStr);
-            return input;
+            return inputs;
         }
 
         // split the command into two parts
@@ -265,20 +289,51 @@ InputData Machine::checkForInput()
 
             // reload the page
             loadMotorEditMenu(currentMotorEditId);
+            return inputs;
         } // if command == edCap
 
-        String idStr = printableStr.substring(separatorIndex + 1, separatorIndex + 3);
-        idStr.trim(); // remove any whitespace
-
-        // convert the ID to an integer
-        int id = idStr.toInt();
+        String valStr = printableStr.substring(separatorIndex + 1, separatorIndex + 3);
 
         // store the command and ID in the struct
-        input.cmd = command;
-        input.id = id;
-    }
-    return input;
-}
+        inputs[0].cmd = command;
+        inputs[0].value = valStr;
+    } // if short command format
+    // if long command format
+    else if (inputStr[0] == '%')
+    {
+        /*LONG COMMAND FORMAT: vector index 0 will only store the identifying command for use in the decision tree.
+        The rest of the indicies will contain the InputData following a filled command, value format.*/
+        Serial.println("Long command: " + inputStr); // print the received data
+        inputStr.trim();                             // remove any whitespace
+        std::string fullString = inputStr.substring(1).c_str();
+        std::istringstream commandStream(fullString);
+        std::string mainCommand;
+        std::getline(commandStream, mainCommand, '@');
+
+        inputs[0].cmd = mainCommand.c_str();
+        Serial.println("Main Long Command: " + inputs[0].cmd);
+
+        // for the rest of the command/arg pairs
+        std::string commandArgPair;
+        while (std::getline(commandStream, commandArgPair, '&'))
+        {
+            std::istringstream pairStream(commandArgPair);
+            std::string command;
+            std::getline(pairStream, command, '=');
+            std::string arg;
+            std::getline(pairStream, arg);
+            inputs.push_back({command.c_str(), arg.c_str()});
+
+            // DELETE for speed
+            String debugCmdOut = command.c_str();
+            String debugArgOut = arg.c_str();
+            Serial.println("Command: " + debugCmdOut + " Arg: " + debugArgOut);
+        } // while
+
+    } // if long command format
+
+    return inputs;
+} // Machine::formatInputString()
 
 void TouchControl::touchOutput(String str)
 {
@@ -319,10 +374,10 @@ void Machine::countdownMsg(int timeMillis, bool displayCountdown, String item, S
     unsigned long startTime = millis();
     int countdownSeconds = countdown / 1000;
     touchscreen.controlCurPage(item, "txt", "Returning to " + destPageName + " in " + String(countdownSeconds) + " seconds...");
-    InputData dataIn = checkForInput();
+    InputData dataIn = checkForInput()[0];
     while (countdown > 0)
     {
-        dataIn = checkForInput();
+        dataIn = checkForInput()[0];
         if (dataIn.cmd == "cancel")
         {
             return;
@@ -457,22 +512,26 @@ void Machine::loadCocktailMenu()
     }     // for each beverage
 } // Machine::loadCocktailMenu()
 
-void Machine::inputDecisionTree()
+void Machine::inputDecisionTree(std::vector<InputData> &inputs)
 {
-    InputData input = checkForInput(); // call the checkForInput() function to get the input data
-
-    if (!input.cmd.isEmpty())
+    if (inputs[0].cmd.isEmpty())
     {
+        return;
+    } // if cmd empty
+
+    if (inputs.size() <= 1) // if the command is short form, the vector should have no more than 1
+    {
+        InputData input = inputs[0]; // get the first element of the vector
         Serial.print("Received command: ");
         Serial.println(input.cmd);
         Serial.print("Received ID: ");
-        Serial.println(input.id);
+        Serial.println(input.value);
 
         // perform the appropriate action based on the command and ID
         if (input.cmd == "gopage")
         {
             // try to convert the page number to an integer
-            int pageNumber = input.id;
+            int pageNumber = input.value.toInt();
 
             // if the page number is not between 0 and 99, throw an error
             if (pageNumber < 0 || pageNumber > 99)
@@ -508,7 +567,7 @@ void Machine::inputDecisionTree()
         } // if gopage
         else if (input.cmd == "bev")
         {
-            int bevId = input.id;
+            int bevId = input.value.toInt();
             Serial.println("Received beverage command: " + String(bevId));
             try
             {
@@ -574,9 +633,9 @@ void Machine::inputDecisionTree()
         else if (input.cmd == "finish")
         {
             Serial.print("Received finish command ");
-            Serial.println(input.id);
+            Serial.println(input.value);
 
-            if (input.id == 12)
+            if (input.value.toInt() == 12)
             {
                 Serial.println("recieved page 12");
                 currentMotorEditId = -1;
@@ -587,18 +646,29 @@ void Machine::inputDecisionTree()
         else if (input.cmd == "ebc")
         {
             Serial.print("Received ebc command ");
-            Serial.println(input.id);
-            if (input.id < 0 || input.id > MOTOR_COUNT)
+            int id = input.value.toInt();
+            Serial.println(id);
+            if (id < 0 || id > MOTOR_COUNT)
             {
-                throw("Invalid ebc bottle id: " + String(input.id));
+                throw("Invalid ebc bottle id: " + String(id));
             } // if invalid id
-            loadMotorEditMenu(input.id);
+            loadMotorEditMenu(id);
         } // else if ebc (editBottleCapacity)
         else
         {
             Serial.println("Received an invalid command: " + input.cmd);
         }
-    } // if cmd not empty
+    } // if short form command
+    else if (inputs.size() > 1)
+    {
+        String cmdType = inputs[0].cmd;
+        Serial.println("Received long form command: " + cmdType);
+
+        for (auto input : inputs)
+        {
+            Serial.println("Command: " + input.cmd + " Value: " + input.value);
+        }
+    } // if long form command
 }
 
 void Machine::createBeverage(int id)
@@ -695,7 +765,7 @@ double Machine::dispense(int motorId, double oz)
     double currentDispense = beforeDispense;
 
     long startRunTime = millis();
-    InputData dataIn = checkForInput();
+    InputData dataIn = checkForInput()[0];
     while (currentDispense < goalDispense)
     {
         // TODO: Keep checking for user input, if its cancel then terminate
@@ -704,7 +774,7 @@ double Machine::dispense(int motorId, double oz)
             // TODO: STOP MOTOR
             throw BeverageCancelledException("Cancelled by user.", convertToOz(currentDispense - beforeDispense));
         } // if
-        dataIn = checkForInput();
+        dataIn = checkForInput()[0];
         // TODO: RUN MOTOR (Get the serial digital output running) (write on)
         currentDispense = loadCell.getCurrentWeight();
         long curTime = millis();
@@ -756,7 +826,7 @@ void Machine::calibrate()
     // timed monitored delay, keep checking for input during the delay
     Serial.println("CALIBRATE() Waiting " + String(CALIBRATION_WAIT_MS) + " milliseconds for user to cancel.");
     unsigned long startTime = millis();
-    InputData dataIn = checkForInput();
+    InputData dataIn = checkForInput()[0];
     while (millis() - startTime < CALIBRATION_WAIT_MS)
     {
         if (dataIn.cmd == "cancel")
@@ -765,7 +835,7 @@ void Machine::calibrate()
             Serial.println("Current weight: " + String(loadCell.getCurrentWeight()));
             return;
         }
-        dataIn = checkForInput();
+        dataIn = checkForInput()[0];
     } // while
 
     loadCell.tareScale();
@@ -834,7 +904,7 @@ void Machine::connectMqtt()
         {
             Serial.println("Connected.");
             // subscribe to topic
-            mqttClient.subscribe("/test/topic");
+            mqttClient.subscribe("test/topic");
         }
     }
 } // Machine::connectMqtt()
@@ -842,11 +912,12 @@ void Machine::connectMqtt()
 void Machine::mqttCallback(char *topic, byte *payload, unsigned int length)
 {
     // TODO: handle incoming data
+    String message = String((char *)payload, length);
     Serial.print("Callback - ");
-    Serial.print("Message:");
-    for (int i = 0; i < length; i++)
-    {
-        Serial.print((char)payload[i]);
-    }
-    Serial.println();
+    Serial.print("Message: ");
+    Serial.println(message);
+
+    std::vector<InputData> inputs = formatInputString(message);
+    inputDecisionTree(inputs);
+
 } // Machine::mqttCallback()

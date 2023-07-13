@@ -39,7 +39,7 @@ struct Bottle
 struct InputData
 {
     String cmd;
-    int id;
+    String value;
 }; // struct InputData
 
 class TouchControl
@@ -196,7 +196,9 @@ private:
     double dispense(int motorId, double oz);
 
     // Touchscreen other functions
-    InputData checkForInput();
+    std::vector<InputData> formatInputString(String inputStr); // formats input string into vector of InputData
+    std::vector<InputData> checkForInput();                    // checks serial for input, returns vector of InputData
+    void inputDecisionTree(std::vector<InputData> &inputs);
 
 public:
     Machine(size_t bottleCount, size_t bevCount);
@@ -211,9 +213,9 @@ public:
     PubSubClient mqttClient;
     void connectMqtt();
 
+    void loopCheckSerial();
     void boot();
-    void makeSelection();
-    void inputDecisionTree();
+
     void mqttCallback(char *topic, byte *payload, unsigned int length);
 };
 

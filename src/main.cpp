@@ -15,7 +15,7 @@ void loop()
     */
     try
     {
-        bevMaker.inputDecisionTree();
+        bevMaker.loopCheckSerial();
     }
     catch (const std::invalid_argument &e)
     {
