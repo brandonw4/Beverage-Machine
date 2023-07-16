@@ -289,6 +289,10 @@ std::vector<InputData> Machine::formatInputString(String inputStr)
 
             // reload the page
             loadMotorEditMenu(currentMotorEditId);
+
+            // send the status to cloud
+            txMachineStatus();
+
             return inputs;
         } // if command == edCap
 
@@ -654,6 +658,11 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
             } // if invalid id
             loadMotorEditMenu(id);
         } // else if ebc (editBottleCapacity)
+        else if (input.cmd == "ss")
+        {
+            Serial.println("Received send status (ss) command");
+            txMachineStatus();
+        } // if send status (ss)
         else
         {
             Serial.println("Received an invalid command: " + input.cmd);
@@ -874,6 +883,7 @@ void Machine::initMqtt()
     mqttClient.setServer(Secrets::MQTT_SERVER, MQTT_PORT);
     std::function<void(char *, uint8_t *, unsigned int)> func = std::bind(&Machine::mqttCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
     mqttClient.setCallback(func);
+    mqttClient.setBufferSize(1024);
     try
     {
         connectMqtt();
@@ -900,6 +910,8 @@ void Machine::connectMqtt()
         String clientId = "ESP32Client-";
         clientId += String(random(0xffff), HEX);
 
+        mqttClient.setKeepAlive(MQTT_KEEP_ALIVE);
+
         if (mqttClient.connect(clientId.c_str(), Secrets::MQTT_USER, Secrets::MQTT_PASS))
         {
             Serial.println("Connected.");
@@ -921,3 +933,39 @@ void Machine::mqttCallback(char *topic, byte *payload, unsigned int length)
     inputDecisionTree(inputs);
 
 } // Machine::mqttCallback()
+
+void Machine::txMachineStatus()
+{
+    // if no wifi/mqtt connection, return
+    if (!mqttClient.connected())
+    {
+        Serial.println("MQTT not connected, cannot send machine status.");
+        return;
+    } // if
+
+    // bottles
+    StaticJsonDocument<1024> bottlesJson;
+    for (auto bottle : bottles)
+    {
+        JsonObject bottleObj = bottlesJson.createNestedObject();
+        bottleObj["_id"] = bottle.id;
+        bottleObj["name"] = bottle.name;
+        bottleObj["ozCapacity"] = bottle.totalCapacity;
+        bottleObj["ozRemaining"] = bottle.estimatedCapacity;
+        bottleObj["status"] = bottle.active;
+        bottleObj["costPerOz"] = bottle.costPerOz;
+
+    } // for bottle
+    String jsonOutput;
+    serializeJson(bottlesJson, jsonOutput);
+    Serial.println("Bottles JSON Bytes:" + String(jsonOutput.length()));
+    Serial.println("Bottles JSON: ");
+    Serial.println(jsonOutput.c_str());
+    mqttClient.publish("machine/bottles", "Sending bottles data.");
+
+    if (!mqttClient.publish("machine/bottles", jsonOutput.c_str()))
+    {
+        Serial.println("MQTT Publish Failed.");
+        throw MqttFailedPublish("MQTT Publish Failed.");
+    }
+} // Machine::txMachineStatus()

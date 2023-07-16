@@ -33,9 +33,11 @@ void loop()
         Serial.println("Weight: " + String(bevMaker.loadCell.getCurrentWeight()));
     }
 
-    // if (!bevMaker.mqttClient.connected())
-    // {
-    //     bevMaker.connectMqtt();
-    // }
+    if (!bevMaker.mqttClient.connected())
+    {
+        Serial.print("MQTT disconnected, reason: ");
+        Serial.println(bevMaker.mqttClient.state());
+        bevMaker.connectMqtt();
+    }
     bevMaker.mqttClient.loop();
 }
