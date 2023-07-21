@@ -14,14 +14,16 @@ void Machine::boot()
     Serial.println("Serial 2 init on 115200");
 
     touchscreen.changePage("0"); // change to boot page
-    touchscreen.controlCurPage("t3", "txt", "Serial 2 connected on 115200");
+    touchscreen.controlCurPage("t3", "txt", "Attempting SD Load.");
 
     try
     {
         initSD();
+        touchscreen.controlCurPage("t3", "txt", "SD Load Successful.");
         initConfig();
         initBottles();
         initData();
+        touchscreen.controlCurPage("t3", "txt", "SD Data Init.");
         loadCell.initLoadCell();
         touchscreen.controlCurPage("t3", "txt", "Scale init.");
         initWifi();
@@ -912,9 +914,10 @@ void Machine::connectMqtt()
 
         mqttClient.setKeepAlive(MQTT_KEEP_ALIVE);
 
-        if (mqttClient.connect(clientId.c_str(), Secrets::MQTT_USER, Secrets::MQTT_PASS))
+        if (mqttClient.connect(clientId.c_str(), Secrets::MQTT_USER, Secrets::MQTT_PASS, "machine/connectstatus", 1, true, "offline"))
         {
             Serial.println("Connected.");
+            mqttClient.publish("machine/connectstatus", "online", true);
             // subscribe to topic
             mqttClient.subscribe("test/topic");
         }

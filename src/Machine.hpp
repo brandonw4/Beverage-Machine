@@ -179,7 +179,7 @@ private:
     const int MQTT_PORT = 8883;
     const int WIFI_TIMEOUT_MS = 10000; // 10 seconds
     const int MQTT_TIMEOUT_MS = 20000; // 20 seconds
-    const int MQTT_KEEP_ALIVE = 20;    // 5 seconds
+    const int MQTT_KEEP_ALIVE = 5;     // 5 seconds
     void txMachineStatus();
 
     void loadMainMenu();
