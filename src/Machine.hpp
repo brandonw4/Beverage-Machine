@@ -4,11 +4,15 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD.h>
-// #include <HX711.h>
 #include <HX711_ADC.h>
 #include <vector>
 #include <sstream>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
 #include "MachineExceptions.hpp"
+#include "SecretEnv.h" //holds CERT,
 
 #define CS_PIN 5
 
@@ -21,7 +25,6 @@ const uint8_t LOADCELL_GAIN = 128;
 
 const size_t MOTOR_COUNT = 8;
 const size_t BEV_COUNT = 12;
-
 
 struct Bottle
 {
@@ -37,7 +40,7 @@ struct Bottle
 struct InputData
 {
     String cmd;
-    int id;
+    String value;
 }; // struct InputData
 
 class TouchControl
@@ -168,6 +171,17 @@ private:
     void initBottles();
     void initData();
 
+    // MQTT server and WiFi
+    void initWifi();
+    void initMqtt();
+    // TODO: WiFi reconnect
+    // TODO: TX Functions (bottles, general status etc.)
+    const int MQTT_PORT = 8883;
+    const int WIFI_TIMEOUT_MS = 10000; // 10 seconds
+    const int MQTT_TIMEOUT_MS = 20000; // 20 seconds
+    const int MQTT_KEEP_ALIVE = 5;     // 5 seconds
+    void txMachineStatus();
+
     void loadMainMenu();
     void loadAdminMenu();
     void loadMotorControlMenu();
@@ -185,17 +199,27 @@ private:
     double dispense(int motorId, double oz);
 
     // Touchscreen other functions
-    InputData checkForInput();
+    std::vector<InputData> formatInputString(String inputStr); // formats input string into vector of InputData
+    std::vector<InputData> checkForInput();                    // checks serial for input, returns vector of InputData
+    void inputDecisionTree(std::vector<InputData> &inputs);
 
 public:
+    Machine(size_t bottleCount, size_t bevCount);
+
     TouchControl touchscreen;
     // load cell
     LoadScale loadCell;
     bool debugPrintWeightSerial = false; // in loop() print the weight to serial
     bool debugPrintWeightSerialDispense = true;
+    // MQTT
+    WiFiClientSecure wifiClient;
+    PubSubClient mqttClient;
+    void connectMqtt();
+
+    void loopCheckSerial();
     void boot();
-    void makeSelection();
-    void inputDecisionTree();
+
+    void mqttCallback(char *topic, byte *payload, unsigned int length);
 };
 
 #endif /*Machine_hpp*/

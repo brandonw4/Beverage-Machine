@@ -1,5 +1,11 @@
 #include "Machine.hpp"
 
+Machine::Machine(size_t bottleCount, size_t bevCount)
+{
+    bottles.reserve(bottleCount);
+    beverages.reserve(bevCount);
+} // Machine::Machine()
+
 void Machine::boot()
 {
     Serial.begin(115200);
@@ -8,20 +14,20 @@ void Machine::boot()
     Serial.println("Serial 2 init on 115200");
 
     touchscreen.changePage("0"); // change to boot page
-    touchscreen.controlCurPage("t3", "txt", "Serial 2 connected on 115200");
+    touchscreen.controlCurPage("t3", "txt", "Attempting SD Load.");
 
-    // reserve and fill vectors
-    bottles.reserve(MOTOR_COUNT);
-    beverages.reserve(BEV_COUNT);
-    // TODO: These need to be filled from SD Card data
     try
     {
         initSD();
+        touchscreen.controlCurPage("t3", "txt", "SD Load Successful.");
         initConfig();
         initBottles();
         initData();
+        touchscreen.controlCurPage("t3", "txt", "SD Data Init.");
         loadCell.initLoadCell();
         touchscreen.controlCurPage("t3", "txt", "Scale init.");
+        initWifi();
+        initMqtt();
     } // try
     catch (String msg)
     {
@@ -36,7 +42,6 @@ void Machine::boot()
         // TODO: trigger reboot w/delay
 
     } // catch
-    
 
     Serial.println("Boot successful.");
     Serial.println("authCocktail: " + String(authCocktail) + " authShots: " + String(authShots));
@@ -181,18 +186,42 @@ void Machine::initData()
     data.close();
 } // Machine::initData()
 
-InputData Machine::checkForInput()
+void Machine::loopCheckSerial()
 {
-    InputData input;
-    if (Serial2.available())
+    std::vector<InputData> inputs = checkForInput(); // call the checkForInput() function to get the input data
+    if (inputs[0].cmd.isEmpty())
     {
-        String inputStr = Serial2.readString();
-        if (inputStr.isEmpty())
-        {
-            return input;
-        }
-        Serial.println("Data from display: " + inputStr); // print the received data
-        inputStr.trim();                                  // remove any whitespace
+        return;
+    }                          // if cmd empty
+    inputDecisionTree(inputs); // call the inputDecisionTree() function to process the input data
+} // Machine::loopCheckSerial()
+
+std::vector<InputData> Machine::checkForInput()
+{
+
+    if (!Serial2.available())
+    {
+        return std::vector<InputData>({InputData()});
+    }
+
+    String inputStr = Serial2.readString();
+    if (inputStr.isEmpty())
+    {
+        return std::vector<InputData>({InputData()});
+    }
+    return formatInputString(inputStr);
+}
+
+std::vector<InputData> Machine::formatInputString(String inputStr)
+{
+    std::vector<InputData> inputs;
+    InputData input;
+    inputs.push_back(input);
+    // if short command format
+    if (inputStr[0] == '!')
+    {
+        Serial.println("Short command: " + inputStr); // print the received data
+        inputStr.trim();                              // remove any whitespace
 
         String printableStr = "";
         for (int i = 0; i < inputStr.length(); i++)
@@ -209,7 +238,7 @@ InputData Machine::checkForInput()
         if (separatorIndex == -1)
         {
             Serial.println("Expected a '@' in the command, but received: " + printableStr);
-            return input;
+            return inputs;
         }
 
         // split the command into two parts
@@ -247,33 +276,70 @@ InputData Machine::checkForInput()
             Serial.println(edPPOz);
 
             // update the bottle's estimated capacity, total capacity, and cost per oz
-            if (edEstCap != -1) {
+            if (edEstCap != -1)
+            {
                 bottles[currentMotorEditId].estimatedCapacity = edEstCap;
-            } //if changed
-            if (edTotalCap != -1) {
+            } // if changed
+            if (edTotalCap != -1)
+            {
                 bottles[currentMotorEditId].totalCapacity = edTotalCap;
-            } //if changed
-            if (edPPOz != -1) {
+            } // if changed
+            if (edPPOz != -1)
+            {
                 bottles[currentMotorEditId].costPerOz = edPPOz;
-            } //if changed
-            
+            } // if changed
 
-            //reload the page
+            // reload the page
             loadMotorEditMenu(currentMotorEditId);
-        } //if command == edCap
 
-        String idStr = printableStr.substring(separatorIndex + 1, separatorIndex + 3);
-        idStr.trim(); // remove any whitespace
+            // send the status to cloud
+            txMachineStatus();
 
-        // convert the ID to an integer
-        int id = idStr.toInt();
+            return inputs;
+        } // if command == edCap
+
+        String valStr = printableStr.substring(separatorIndex + 1, separatorIndex + 3);
 
         // store the command and ID in the struct
-        input.cmd = command;
-        input.id = id;
-    }
-    return input;
-}
+        inputs[0].cmd = command;
+        inputs[0].value = valStr;
+    } // if short command format
+    // if long command format
+    else if (inputStr[0] == '%')
+    {
+        /*LONG COMMAND FORMAT: vector index 0 will only store the identifying command for use in the decision tree.
+        The rest of the indicies will contain the InputData following a filled command, value format.*/
+        Serial.println("Long command: " + inputStr); // print the received data
+        inputStr.trim();                             // remove any whitespace
+        std::string fullString = inputStr.substring(1).c_str();
+        std::istringstream commandStream(fullString);
+        std::string mainCommand;
+        std::getline(commandStream, mainCommand, '@');
+
+        inputs[0].cmd = mainCommand.c_str();
+        Serial.println("Main Long Command: " + inputs[0].cmd);
+
+        // for the rest of the command/arg pairs
+        std::string commandArgPair;
+        while (std::getline(commandStream, commandArgPair, '&'))
+        {
+            std::istringstream pairStream(commandArgPair);
+            std::string command;
+            std::getline(pairStream, command, '=');
+            std::string arg;
+            std::getline(pairStream, arg);
+            inputs.push_back({command.c_str(), arg.c_str()});
+
+            // DELETE for speed
+            String debugCmdOut = command.c_str();
+            String debugArgOut = arg.c_str();
+            Serial.println("Command: " + debugCmdOut + " Arg: " + debugArgOut);
+        } // while
+
+    } // if long command format
+
+    return inputs;
+} // Machine::formatInputString()
 
 void TouchControl::touchOutput(String str)
 {
@@ -314,10 +380,10 @@ void Machine::countdownMsg(int timeMillis, bool displayCountdown, String item, S
     unsigned long startTime = millis();
     int countdownSeconds = countdown / 1000;
     touchscreen.controlCurPage(item, "txt", "Returning to " + destPageName + " in " + String(countdownSeconds) + " seconds...");
-    InputData dataIn = checkForInput();
+    InputData dataIn = checkForInput()[0];
     while (countdown > 0)
     {
-        dataIn = checkForInput();
+        dataIn = checkForInput()[0];
         if (dataIn.cmd == "cancel")
         {
             return;
@@ -407,7 +473,8 @@ void Machine::loadAdminMenu()
 
 } // Machine::loadAdminMenu()
 
-void Machine::loadMotorControlMenu() {
+void Machine::loadMotorControlMenu()
+{
     touchscreen.changePage("9");
 
     for (auto bottle : bottles)
@@ -415,7 +482,7 @@ void Machine::loadMotorControlMenu() {
         String itemId = "sw" + String(bottle.id);
         touchscreen.controlCurPage(itemId, "val", String(bottle.active));
         itemId = "bname" + String(bottle.id);
-        
+
         touchscreen.controlCurPage(itemId, "txt", String(bottle.id) + ":" + bottle.name);
         itemId = "bcap" + String(bottle.id);
         touchscreen.controlCurPage(itemId, "txt", String(bottle.estimatedCapacity));
@@ -424,7 +491,8 @@ void Machine::loadMotorControlMenu() {
     } // for bottle
 } // Machine::loadMotorControlMenu()
 
-void Machine::loadMotorEditMenu(int motorId) {
+void Machine::loadMotorEditMenu(int motorId)
+{
     touchscreen.changePage("12");
     touchscreen.controlCurPage("t0", "txt", String(motorId) + ":" + bottles[motorId].name);
     touchscreen.controlCurPage("curEstCap", "txt", String(bottles[motorId].estimatedCapacity));
@@ -450,22 +518,26 @@ void Machine::loadCocktailMenu()
     }     // for each beverage
 } // Machine::loadCocktailMenu()
 
-void Machine::inputDecisionTree()
+void Machine::inputDecisionTree(std::vector<InputData> &inputs)
 {
-    InputData input = checkForInput(); // call the checkForInput() function to get the input data
-
-    if (!input.cmd.isEmpty())
+    if (inputs[0].cmd.isEmpty())
     {
+        return;
+    } // if cmd empty
+
+    if (inputs.size() <= 1) // if the command is short form, the vector should have no more than 1
+    {
+        InputData input = inputs[0]; // get the first element of the vector
         Serial.print("Received command: ");
         Serial.println(input.cmd);
         Serial.print("Received ID: ");
-        Serial.println(input.id);
+        Serial.println(input.value);
 
         // perform the appropriate action based on the command and ID
         if (input.cmd == "gopage")
         {
             // try to convert the page number to an integer
-            int pageNumber = input.id;
+            int pageNumber = input.value.toInt();
 
             // if the page number is not between 0 and 99, throw an error
             if (pageNumber < 0 || pageNumber > 99)
@@ -501,14 +573,14 @@ void Machine::inputDecisionTree()
         } // if gopage
         else if (input.cmd == "bev")
         {
-            int bevId = input.id;
+            int bevId = input.value.toInt();
             Serial.println("Received beverage command: " + String(bevId));
             try
             {
                 createBeverage(bevId);
             }
             catch (BeverageDisabledException &e)
-            { //63488 red
+            { // 63488 red
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
@@ -564,30 +636,50 @@ void Machine::inputDecisionTree()
                 loadCocktailMenu();
             }
         } // elif bev
-        else if (input.cmd == "finish") {
+        else if (input.cmd == "finish")
+        {
             Serial.print("Received finish command ");
-            Serial.println(input.id);
+            Serial.println(input.value);
 
-            if (input.id == 12) {
+            if (input.value.toInt() == 12)
+            {
                 Serial.println("recieved page 12");
                 currentMotorEditId = -1;
                 loadMotorControlMenu();
             } // if page 12
 
-        } //else if finishGo
-        else if (input.cmd == "ebc") {
+        } // else if finishGo
+        else if (input.cmd == "ebc")
+        {
             Serial.print("Received ebc command ");
-            Serial.println(input.id);
-            if (input.id < 0 || input.id > MOTOR_COUNT) {
-                throw("Invalid ebc bottle id: " + String(input.id));
+            int id = input.value.toInt();
+            Serial.println(id);
+            if (id < 0 || id > MOTOR_COUNT)
+            {
+                throw("Invalid ebc bottle id: " + String(id));
             } // if invalid id
-            loadMotorEditMenu(input.id);
+            loadMotorEditMenu(id);
         } // else if ebc (editBottleCapacity)
+        else if (input.cmd == "ss")
+        {
+            Serial.println("Received send status (ss) command");
+            txMachineStatus();
+        } // if send status (ss)
         else
         {
             Serial.println("Received an invalid command: " + input.cmd);
         }
-    } // if cmd not empty
+    } // if short form command
+    else if (inputs.size() > 1)
+    {
+        String cmdType = inputs[0].cmd;
+        Serial.println("Received long form command: " + cmdType);
+
+        for (auto input : inputs)
+        {
+            Serial.println("Command: " + input.cmd + " Value: " + input.value);
+        }
+    } // if long form command
 }
 
 void Machine::createBeverage(int id)
@@ -684,7 +776,7 @@ double Machine::dispense(int motorId, double oz)
     double currentDispense = beforeDispense;
 
     long startRunTime = millis();
-    InputData dataIn = checkForInput();
+    InputData dataIn = checkForInput()[0];
     while (currentDispense < goalDispense)
     {
         // TODO: Keep checking for user input, if its cancel then terminate
@@ -693,7 +785,7 @@ double Machine::dispense(int motorId, double oz)
             // TODO: STOP MOTOR
             throw BeverageCancelledException("Cancelled by user.", convertToOz(currentDispense - beforeDispense));
         } // if
-        dataIn = checkForInput();
+        dataIn = checkForInput()[0];
         // TODO: RUN MOTOR (Get the serial digital output running) (write on)
         currentDispense = loadCell.getCurrentWeight();
         long curTime = millis();
@@ -710,9 +802,10 @@ double Machine::dispense(int motorId, double oz)
             // throw CupRemovedException("Cup removed during dispensing. Before: " + std::to_string(beforeDispense) + " After: " + std::to_string(currentDispense) + "Const Cup Removal Threshold: " + std::to_string(CUP_REMOVAL_THRESHOLD));
             throw CupRemovedException("Cup removed during dispensing.", convertToOz(currentDispense - beforeDispense));
         } // if
-        if (debugPrintWeightSerialDispense) {
+        if (debugPrintWeightSerialDispense)
+        {
             Serial.println("Current Dispense: " + String(currentDispense));
-        } //if
+        } // if
 
     } // while
     // TODO: STOP MOTOR
@@ -744,7 +837,7 @@ void Machine::calibrate()
     // timed monitored delay, keep checking for input during the delay
     Serial.println("CALIBRATE() Waiting " + String(CALIBRATION_WAIT_MS) + " milliseconds for user to cancel.");
     unsigned long startTime = millis();
-    InputData dataIn = checkForInput();
+    InputData dataIn = checkForInput()[0];
     while (millis() - startTime < CALIBRATION_WAIT_MS)
     {
         if (dataIn.cmd == "cancel")
@@ -753,10 +846,129 @@ void Machine::calibrate()
             Serial.println("Current weight: " + String(loadCell.getCurrentWeight()));
             return;
         }
-        dataIn = checkForInput();
+        dataIn = checkForInput()[0];
     } // while
 
     loadCell.tareScale();
 
     loadMainMenu();
 } // Machine::calibrate()
+
+void Machine::initWifi()
+{
+    // TODO: read in wifi ssid from file
+    const char *SSID = "TallDolphin";
+    const char *PWD = "3138858442";
+    Serial.println("Connecting to " + String(SSID) + "...");
+    WiFi.begin(SSID, PWD);
+    int wifiTimeout = millis();
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        if (millis() - wifiTimeout > WIFI_TIMEOUT_MS)
+        {
+            Serial.println("Wifi connection timed out.");
+            throw WifiFailedInit("Wifi connection timed out. SSID: " + std::string(SSID) + " PWD: " + std::string(PWD));
+        } // if
+        delay(500);
+        Serial.print(".");
+    } // while
+    Serial.println("Connected to: " + String(SSID) + " IP: " + String(WiFi.localIP()));
+    touchscreen.controlCurPage("t3", "txt", "Init Wifi. SSID: " + String(SSID) + " IP: " + String(WiFi.localIP()));
+    randomSeed(micros());
+
+} // Machine::initWifi()
+
+void Machine::initMqtt()
+{
+    wifiClient.setCACert((const char *)Secrets::CERT);
+    mqttClient.setClient(wifiClient);
+    mqttClient.setServer(Secrets::MQTT_SERVER, MQTT_PORT);
+    std::function<void(char *, uint8_t *, unsigned int)> func = std::bind(&Machine::mqttCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+    mqttClient.setCallback(func);
+    mqttClient.setBufferSize(1024);
+    try
+    {
+        connectMqtt();
+    }
+    catch (MqttFailedInit &e)
+    {
+        Serial.println(e.what());
+    }
+    touchscreen.controlCurPage("t3", "txt", "Init Mqtt.");
+} // Machine::initMqtt()
+
+void Machine::connectMqtt()
+{
+    int mqttTimeout = millis();
+    Serial.println("Reconnecting to MQTT Broker..");
+    while (!mqttClient.connected())
+    {
+        if (millis() - mqttTimeout > MQTT_TIMEOUT_MS)
+        {
+            Serial.println("MQTT connection timed out.");
+            throw MqttFailedInit("MQTT connection timed out.");
+        } // if
+
+        String clientId = "ESP32Client-";
+        clientId += String(random(0xffff), HEX);
+
+        mqttClient.setKeepAlive(MQTT_KEEP_ALIVE);
+
+        if (mqttClient.connect(clientId.c_str(), Secrets::MQTT_USER, Secrets::MQTT_PASS, "machine/connectstatus", 1, true, "offline"))
+        {
+            Serial.println("Connected.");
+            mqttClient.publish("machine/connectstatus", "online", true);
+            // subscribe to topic
+            mqttClient.subscribe("test/topic");
+        }
+    }
+} // Machine::connectMqtt()
+
+void Machine::mqttCallback(char *topic, byte *payload, unsigned int length)
+{
+    // TODO: handle incoming data
+    String message = String((char *)payload, length);
+    Serial.print("Callback - ");
+    Serial.print("Message: ");
+    Serial.println(message);
+
+    std::vector<InputData> inputs = formatInputString(message);
+    inputDecisionTree(inputs);
+
+} // Machine::mqttCallback()
+
+void Machine::txMachineStatus()
+{
+    // if no wifi/mqtt connection, return
+    if (!mqttClient.connected())
+    {
+        Serial.println("MQTT not connected, cannot send machine status.");
+        return;
+    } // if
+
+    // bottles
+    StaticJsonDocument<1024> bottlesJson;
+    for (auto bottle : bottles)
+    {
+        JsonObject bottleObj = bottlesJson.createNestedObject();
+        bottleObj["_id"] = bottle.id;
+        bottleObj["name"] = bottle.name;
+        bottleObj["ozCapacity"] = bottle.totalCapacity;
+        bottleObj["ozRemaining"] = bottle.estimatedCapacity;
+        bottleObj["status"] = bottle.active;
+        bottleObj["costPerOz"] = bottle.costPerOz;
+
+    } // for bottle
+    String jsonOutput;
+    serializeJson(bottlesJson, jsonOutput);
+    Serial.println("Bottles JSON Bytes:" + String(jsonOutput.length()));
+    Serial.println("Bottles JSON: ");
+    Serial.println(jsonOutput.c_str());
+    mqttClient.publish("machine/bottles", "Sending bottles data.");
+
+    if (!mqttClient.publish("machine/bottles", jsonOutput.c_str()))
+    {
+        Serial.println("MQTT Publish Failed.");
+        throw MqttFailedPublish("MQTT Publish Failed.");
+    }
+} // Machine::txMachineStatus()

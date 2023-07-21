@@ -119,4 +119,46 @@ private:
     double priceDispensed = 0.0;
 };
 
+class WifiFailedInit : public std::exception
+{
+public:
+    WifiFailedInit(const std::string &message) : message_(message) {}
+
+    const char *what() const noexcept override
+    {
+        return message_.c_str();
+    }
+
+private:
+    std::string message_;
+};
+
+class MqttFailedInit : public std::exception
+{
+public:
+    MqttFailedInit(const std::string &message) : message_(message) {}
+
+    const char *what() const noexcept override
+    {
+        return message_.c_str();
+    }
+
+private:
+    std::string message_;
+};
+
+class MqttFailedPublish : public std::exception
+{
+public:
+    MqttFailedPublish(const std::string &message) : message_(message) {}
+
+    const char *what() const noexcept override
+    {
+        return message_.c_str();
+    }
+
+private:
+    std::string message_;
+};
+
 #endif /* MachineExceptions_hpp */
