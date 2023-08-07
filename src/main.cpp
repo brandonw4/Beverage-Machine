@@ -10,9 +10,11 @@ void setup()
 
 void loop()
 {
+
     /*
     if there is serial input (either from debug console or from touchscreen), run the decision tree
     */
+
     try
     {
         bevMaker.loopCheckSerial();

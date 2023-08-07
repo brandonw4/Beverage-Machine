@@ -5,6 +5,10 @@
 		},
 		{
 			"path": "../../../../../Volumes/MACHINE"
+		},
+		{
+			"name": "Demo Ads-Led",
+			"path": "../../Demo Ads-Led"
 		}
 	],
 	"settings": {

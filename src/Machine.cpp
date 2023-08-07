@@ -9,9 +9,10 @@ Machine::Machine(size_t bottleCount, size_t bevCount)
 void Machine::boot()
 {
     Serial.begin(115200);
-    Serial.println("Serial 1 init on ");
+    Serial.println("Serial 1 init on 115200");
     Serial2.begin(115200);
     Serial.println("Serial 2 init on 115200");
+    frontLED.standby();
 
     touchscreen.changePage("0"); // change to boot page
     touchscreen.controlCurPage("t3", "txt", "Attempting SD Load.");
@@ -20,14 +21,21 @@ void Machine::boot()
     {
         initSD();
         touchscreen.controlCurPage("t3", "txt", "SD Load Successful.");
-        initConfig();
-        initBottles();
+        // initConfig();
+        // initBottles();
         initData();
         touchscreen.controlCurPage("t3", "txt", "SD Data Init.");
         loadCell.initLoadCell();
         touchscreen.controlCurPage("t3", "txt", "Scale init.");
         initWifi();
         initMqtt();
+
+        initNVSBottles();
+        touchscreen.controlCurPage("t3", "txt", "NVS Bottles init.");
+        initNVSBev();
+        touchscreen.controlCurPage("t3", "txt", "NVS Bevs. init.");
+        txMachineStatus();
+
     } // try
     catch (String msg)
     {
@@ -55,6 +63,7 @@ void Machine::boot()
         Serial.println(bottle.isShot);
         Serial.println(bottle.costPerOz);
         Serial.println(bottle.estimatedCapacity);
+        Serial.println(bottle.totalCapacity);
         Serial.println();
     } // for every bottle
     Serial.println();
@@ -186,6 +195,76 @@ void Machine::initData()
     data.close();
 } // Machine::initData()
 
+void Machine::initNVSBottles()
+{
+    preferences.begin("bottles", true);
+    for (size_t i = 0; i < MOTOR_COUNT; i++)
+    {
+        String key = "bottle-" + String(i);
+        String json = preferences.getString(key.c_str());
+        if (json.isEmpty())
+        {
+            std::string msg = "ERROR: Bottle " + std::to_string(i) + " not found in NVS.";
+            throw NVSNotFound(msg);
+        } // if json empty
+        Bottle bottle = Bottle::fromJson(json);
+        bottles.push_back(bottle);
+    }
+    preferences.end();
+} // Machine::initNVSBottles()
+
+void Machine::initNVSBev()
+{
+    preferences.begin("beverages", true);
+    for (size_t i = 0; i < BEV_COUNT; i++)
+    {
+        String key = "bev-" + String(i);
+        String json = preferences.getString(key.c_str());
+        if (json == "")
+        {
+            std::string msg = "ERROR: Beverage " + std::to_string(i) + " not found in NVS.";
+            throw NVSNotFound(msg);
+        }
+        Beverage bev = Beverage::fromJson(json);
+        beverages.push_back(bev);
+    }
+    preferences.end();
+} // Machine::initNVSBev()
+
+void Machine::saveNVSBottle(int bottleId, const Bottle &bottle)
+{
+    preferences.begin("bottles", false); // false indicates write (not readonly)
+    String key = "bottle-" + String(bottleId);
+    preferences.putString(key.c_str(), bottle.toJson());
+    preferences.end();
+} // Machine::saveNVSBottle()
+
+void Machine::saveAllNVSBottles()
+{
+    // save all bottles to NVS
+    for (auto bottle : bottles)
+    {
+        saveNVSBottle(bottle.id, bottle);
+    }
+} // Machine::saveAllNVSBottles()
+
+void Machine::saveNVSBev(int bevId, const Beverage &bev)
+{
+    preferences.begin("beverages", false); // false indicates write (not readonly)
+    String key = "bev-" + String(bevId);
+    preferences.putString(key.c_str(), bev.toJson());
+    preferences.end();
+} // Machine::saveNVSBev()
+
+void Machine::saveAllNVSBevs()
+{
+    // save all beverages to NVS
+    for (auto bev : beverages)
+    {
+        saveNVSBev(bev.id, bev);
+    }
+} // Machine::saveAllNVSBevs()
+
 void Machine::loopCheckSerial()
 {
     std::vector<InputData> inputs = checkForInput(); // call the checkForInput() function to get the input data
@@ -204,7 +283,13 @@ std::vector<InputData> Machine::checkForInput()
         return std::vector<InputData>({InputData()});
     }
 
-    String inputStr = Serial2.readString();
+    String inputStr;
+    // read the chars (char)Serial2.read() into the inputStr
+    while (Serial2.available())
+    {
+        inputStr += (char)Serial2.read();
+    } // while
+
     if (inputStr.isEmpty())
     {
         return std::vector<InputData>({InputData()});
@@ -294,6 +379,7 @@ std::vector<InputData> Machine::formatInputString(String inputStr)
 
             // send the status to cloud
             txMachineStatus();
+            saveAllNVSBottles();
 
             return inputs;
         } // if command == edCap
@@ -384,6 +470,9 @@ void Machine::countdownMsg(int timeMillis, bool displayCountdown, String item, S
     while (countdown > 0)
     {
         dataIn = checkForInput()[0];
+        mqttClient.loop();
+        wifiClient.flush();
+
         if (dataIn.cmd == "cancel")
         {
             return;
@@ -635,6 +724,13 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
                 Serial.println("Beverage Cancelled Exception in inputDecisionTree. TotalCost: " + String(e.get_priceDispensed()));
                 loadCocktailMenu();
             }
+
+            // regardless, save all bottle updates to NVS
+            saveAllNVSBottles();
+            txMachineStatus();
+            frontLED.resetProgress();
+            frontLED.standby();
+
         } // elif bev
         else if (input.cmd == "finish")
         {
@@ -698,6 +794,7 @@ void Machine::createBeverage(int id)
     touchscreen.controlCurPage("t2", "pco", "33808");
 
     double estimatedCost = 0.0;
+    double totalOz = 0.0;
 
     for (int i = 0; i < MOTOR_COUNT; i++)
     {
@@ -711,6 +808,7 @@ void Machine::createBeverage(int id)
         } // if (bottles[i] <= bev.ozArr[i])
 
         estimatedCost += bev.ozArr[i] * bottles[i].costPerOz;
+        totalOz += bev.ozArr[i];
     } // for i
 
     // TODO: present cost to user, ask for confirmation and continue (also write to log and print that no profit is made, at cost dispensed) "Liquor is expensive, this cost is only the store cost of the liquor, no profit is made. Continue?"
@@ -733,7 +831,7 @@ void Machine::createBeverage(int id)
             touchscreen.controlCurPage("t1", "txt", "Dispensing " + bottles[i].name + "...");
             try
             {
-                actualDispensed = dispense(i, bev.ozArr[i]);
+                actualDispensed = dispense(i, bev.ozArr[i], actualDispensed, totalOz);
             }
             catch (CupRemovedException &e)
             {
@@ -767,7 +865,7 @@ void Machine::createBeverage(int id)
     return;
 } // Machine::createBeverage()
 
-double Machine::dispense(int motorId, double oz)
+double Machine::dispense(int motorId, double oz, double runningOz, double totalOz)
 {
     double beforeDispense = loadCell.getCurrentWeight();
     Serial.println("Before dispense: " + String(beforeDispense));
@@ -780,6 +878,8 @@ double Machine::dispense(int motorId, double oz)
     while (currentDispense < goalDispense)
     {
         // TODO: Keep checking for user input, if its cancel then terminate
+        // TODO: KEEP ALIVE MQTT
+        // TODO: KEEP ALIVE WIFI
         if (dataIn.cmd == "cancel")
         {
             // TODO: STOP MOTOR
@@ -788,6 +888,13 @@ double Machine::dispense(int motorId, double oz)
         dataIn = checkForInput()[0];
         // TODO: RUN MOTOR (Get the serial digital output running) (write on)
         currentDispense = loadCell.getCurrentWeight();
+
+        // Calculate the dispensed amount in the current iteration
+        double dispensedInThisIteration = convertToOz(currentDispense - beforeDispense);
+        // Update LED Progress
+        double completionPercentage = ((runningOz + dispensedInThisIteration) / totalOz) * 100;
+        frontLED.updateProgress(completionPercentage);
+
         long curTime = millis();
         if (curTime - startRunTime > MOTOR_TIMEOUT_MS)
         {
@@ -808,7 +915,9 @@ double Machine::dispense(int motorId, double oz)
         } // if
 
     } // while
+
     // TODO: STOP MOTOR
+
     return convertToOz(currentDispense - beforeDispense);
 } // Machine::dispense()
 
@@ -850,6 +959,7 @@ void Machine::calibrate()
     } // while
 
     loadCell.tareScale();
+    isCalibrated = true;
 
     loadMainMenu();
 } // Machine::calibrate()
@@ -920,20 +1030,59 @@ void Machine::connectMqtt()
             mqttClient.publish("machine/connectstatus", "online", true);
             // subscribe to topic
             mqttClient.subscribe("test/topic");
+            mqttClient.subscribe("machine/bottle");
+            mqttClient.subscribe("machine/bottles");
         }
     }
 } // Machine::connectMqtt()
 
 void Machine::mqttCallback(char *topic, byte *payload, unsigned int length)
 {
+    String topicStr = String(topic);
     // TODO: handle incoming data
     String message = String((char *)payload, length);
     Serial.print("Callback - ");
     Serial.print("Message: ");
     Serial.println(message);
+    Serial.print("Topic: ");
+    Serial.println(topicStr);
 
-    std::vector<InputData> inputs = formatInputString(message);
-    inputDecisionTree(inputs);
+    if (topicStr == "machine/bottle")
+    {
+        StaticJsonDocument<200> doc;
+        deserializeJson(doc, payload, length);
+
+        int id = doc["_id"].as<int>();
+
+        if (id < 0 || id > MOTOR_COUNT)
+        {
+            throw("Invalid bottle id: " + String(id));
+        }
+        bottles[id].name = doc["name"].as<String>();
+        bottles[id].active = doc["status"].as<bool>();
+        bottles[id].costPerOz = doc["costPerOz"].as<float>();
+        bottles[id].estimatedCapacity = doc["ozRemaining"].as<float>();
+        bottles[id].totalCapacity = doc["ozCapacity"].as<float>();
+
+        Serial.println("Bottle " + String(id) + " updated.");
+        Serial.println(bottles[id].name);
+        Serial.println(bottles[id].id);
+        Serial.println(bottles[id].active);
+        Serial.println(bottles[id].isShot);
+        Serial.println(bottles[id].costPerOz);
+        Serial.println(bottles[id].estimatedCapacity);
+        Serial.println(bottles[id].totalCapacity);
+        Serial.println();
+        saveNVSBottle(id, bottles[id]);
+    }
+    else if (topicStr == "machine/bottles")
+    {
+    }
+    else
+    {
+        std::vector<InputData> inputs = formatInputString(message);
+        inputDecisionTree(inputs);
+    }
 
 } // Machine::mqttCallback()
 
@@ -972,3 +1121,39 @@ void Machine::txMachineStatus()
         throw MqttFailedPublish("MQTT Publish Failed.");
     }
 } // Machine::txMachineStatus()
+
+void FrontLEDControl::clear()
+{
+    fill_solid(leds, FRONT_LED_COUNT, CRGB::Black);
+    FastLED.show();
+}; // FrontLEDControl::clear()
+
+void FrontLEDControl::standby()
+{
+    fill_solid(leds, FRONT_LED_COUNT, CRGB::Blue);
+    FastLED.show();
+}; // FrontLEDControl::standby()
+
+void FrontLEDControl::updateProgress(double percentage)
+{
+    int ledsToLight = (percentage * FRONT_LED_COUNT) / 100;
+
+    for (int i = lastUpdatedLed + 1; i < ledsToLight; i++)
+    {
+        leds[i] = CRGB::Green;
+    }
+
+    lastUpdatedLed = ledsToLight - 1;
+
+    FastLED.show();
+
+} // FrontLEDControl::updateProgress()
+
+void FrontLEDControl::successAnimation(){
+    // TODO
+
+}; // FrontLEDControl::successAnimation()
+
+void FrontLEDControl::errorAnimation(){
+    // TODO
+}; // FrontLEDControl::errorAnimation()

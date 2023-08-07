@@ -11,8 +11,10 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include "MachineExceptions.hpp"
 #include "SecretEnv.h" //holds CERT,
+#include <FastLED.h>
 
 #define CS_PIN 5
 
@@ -26,6 +28,31 @@ const uint8_t LOADCELL_GAIN = 128;
 const size_t MOTOR_COUNT = 8;
 const size_t BEV_COUNT = 12;
 
+class FrontLEDControl
+{
+private:
+    // LED Wiring
+    static const int FRONT_LED_PIN = 27;
+    static const int FRONT_LED_COUNT = 60;
+    CRGB leds[FRONT_LED_COUNT];
+    int lastUpdatedLed = -1;
+
+public:
+    FrontLEDControl()
+    {
+        FastLED.addLeds<NEOPIXEL, FRONT_LED_PIN>(leds, FRONT_LED_COUNT);
+        FastLED.setBrightness(255);
+        standby();
+    }
+
+    void clear();
+    void standby();
+    void updateProgress(double percent);
+    void resetProgress() { lastUpdatedLed = -1; }
+    void successAnimation();
+    void errorAnimation();
+};
+
 struct Bottle
 {
     String name;
@@ -35,6 +62,82 @@ struct Bottle
     double costPerOz = 0.0;
     double estimatedCapacity = 0.0;
     double totalCapacity = 0.0;
+
+    // convert Bottle to JSON
+    String toJson() const
+    {
+        StaticJsonDocument<200> doc;
+        doc["name"] = name;
+        doc["_id"] = id;
+        doc["active"] = active;
+        doc["isShot"] = isShot;
+        doc["costPerOz"] = costPerOz;
+        doc["estimatedCapacity"] = estimatedCapacity;
+        doc["totalCapacity"] = totalCapacity;
+        String output;
+        serializeJson(doc, output);
+        return output;
+    }
+
+    // Method to initialize Bottle from JSON
+    static Bottle fromJson(const String &json)
+    {
+        StaticJsonDocument<200> doc;
+        deserializeJson(doc, json);
+        Bottle bottle;
+        bottle.name = doc["name"].as<String>();
+        bottle.id = doc["_id"];
+        bottle.active = doc["active"];
+        bottle.isShot = doc["isShot"];
+        bottle.costPerOz = doc["costPerOz"];
+        bottle.estimatedCapacity = doc["estimatedCapacity"];
+        bottle.totalCapacity = doc["totalCapacity"];
+        return bottle;
+    }
+};
+
+struct Beverage
+{
+    String name;
+    int id = -1;
+    bool isActive = true;
+    double ozArr[MOTOR_COUNT];
+    String additionalInstructions = "";
+
+    // convert Beverage to JSON
+    String toJson() const
+    {
+        StaticJsonDocument<300> doc;
+        doc["name"] = name;
+        doc["_id"] = id;
+        doc["isActive"] = isActive;
+        JsonArray ozArrJson = doc.createNestedArray("ozArr");
+        for (double oz : ozArr)
+        {
+            ozArrJson.add(oz);
+        }
+        doc["additionalInstructions"] = additionalInstructions;
+        String output;
+        serializeJson(doc, output);
+        return output;
+    }
+
+    // static method to initalize a beverage from JSON
+    static Beverage fromJson(const String &json)
+    {
+        StaticJsonDocument<300> doc;
+        deserializeJson(doc, json);
+        Beverage bev;
+        bev.name = doc["name"].as<String>();
+        bev.id = doc["_id"];
+        bev.isActive = doc["isActive"];
+        for (int i = 0; i < doc["ozArr"].size(); i++)
+        {
+            bev.ozArr[i] = doc["ozArr"][i];
+        }
+        bev.additionalInstructions = doc["additionalInstructions"].as<String>();
+        return bev;
+    }
 };
 
 struct InputData
@@ -108,17 +211,6 @@ public:
 
 }; // class TouchControl
 
-class Beverage
-{
-private:
-public:
-    String name;
-    int id = -1;
-    bool isActive = true;
-    double ozArr[MOTOR_COUNT];
-    String additionalInstructions = "";
-};
-
 class LoadScale
 {
 private:
@@ -149,11 +241,16 @@ private:
     const int MOTOR_TIMEOUT_MS = 12000; // 10 seconds
     const double CUP_REMOVAL_THRESHOLD = 2;
 
+    bool isCalibrated = false;
+
     // SD CARD
     File config;
     File data;
     File log;
     // File paymentLog
+
+    // NVS
+    Preferences preferences;
 
     std::vector<Bottle> bottles;
     std::vector<Beverage> beverages;
@@ -170,6 +267,13 @@ private:
     void initConfig();
     void initBottles();
     void initData();
+    // NVS data
+    void initNVSBottles();
+    void initNVSBev();
+    void saveNVSBottle(int bottleId, const Bottle &bottle);
+    void saveAllNVSBottles();
+    void saveNVSBev(int bevId, const Beverage &bev);
+    void saveAllNVSBevs();
 
     // MQTT server and WiFi
     void initWifi();
@@ -179,8 +283,9 @@ private:
     const int MQTT_PORT = 8883;
     const int WIFI_TIMEOUT_MS = 10000; // 10 seconds
     const int MQTT_TIMEOUT_MS = 20000; // 20 seconds
-    const int MQTT_KEEP_ALIVE = 5;     // 5 seconds
+    const int MQTT_KEEP_ALIVE = 6;     // 6 seconds
     void txMachineStatus();
+    void rxBottleStatus(const String &json);
 
     void loadMainMenu();
     void loadAdminMenu();
@@ -196,12 +301,15 @@ private:
     double convertToScaleUnit(double oz);
     double convertToOz(double scaleUnit);
     void createBeverage(int id);
-    double dispense(int motorId, double oz);
+    double dispense(int motorId, double oz, double runningOz, double totalOz); // runningOz and totalOz are used for accurate led progress bar
 
     // Touchscreen other functions
     std::vector<InputData> formatInputString(String inputStr); // formats input string into vector of InputData
     std::vector<InputData> checkForInput();                    // checks serial for input, returns vector of InputData
     void inputDecisionTree(std::vector<InputData> &inputs);
+
+    // Front LED
+    FrontLEDControl frontLED;
 
 public:
     Machine(size_t bottleCount, size_t bevCount);
