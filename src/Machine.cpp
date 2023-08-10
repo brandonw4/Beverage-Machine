@@ -12,6 +12,7 @@ void Machine::boot()
     Serial.println("Serial 1 init on 115200");
     Serial2.begin(115200);
     Serial.println("Serial 2 init on 115200");
+    frontLED.init();
     frontLED.standby();
 
     touchscreen.changePage("0"); // change to boot page
@@ -29,11 +30,15 @@ void Machine::boot()
         touchscreen.controlCurPage("t3", "txt", "Scale init.");
         initWifi();
         initMqtt();
+        // saveAllNVSBevs();
+        // saveAllNVSBottles();
 
         initNVSBottles();
         touchscreen.controlCurPage("t3", "txt", "NVS Bottles init.");
         initNVSBev();
         touchscreen.controlCurPage("t3", "txt", "NVS Bevs. init.");
+        motorControl.init();
+        touchscreen.controlCurPage("t3", "txt", "Motor Control init.");
         txMachineStatus();
 
     } // try
@@ -526,20 +531,26 @@ void Machine::loadMainMenu()
     */
     // green color: 1024
     // yellow color: 65088
+    // grey color: 33808
     // default color is green
     for (auto bottle : bottles)
     {
+        String itemId = "bs" + String(bottle.id);
+        touchscreen.controlCurPage(itemId, "txt", bottle.name);
         if (!bottle.active)
         {
-            String itemId = "bs" + String(bottle.id);
-            touchscreen.controlCurPage(itemId, "bco", "65088");
+            touchscreen.controlCurPage(itemId, "bco", "33808");
         }
         else
         {
-            String itemId = "bs" + String(bottle.id);
             touchscreen.controlCurPage(itemId, "bco", "1024");
         }
     } // for bottle
+    if (!isCalibrated)
+    {
+        touchscreen.controlCurPage("t11", "txt", "Not Calibrated");
+        touchscreen.controlCurPage("t11", "bco", "63488");
+    }
     if (debugMainPageOutput)
     {
         touchscreen.controlCurPage("debugTitle", "txt", "Debug Sys. Output: ");
@@ -673,14 +684,26 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
+                frontLED.errorAnimation();
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 loadCocktailMenu();
             }
+            catch (MachineNotCalibratedException &e)
+            {
+                touchscreen.controlCurPage("t0", "pco", "63488");
+                touchscreen.controlCurPage("t0", "txt", e.what());
+                touchscreen.controlCurPage("t2", "txt", "");
+                frontLED.errorAnimation();
+                countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
+                loadCocktailMenu();
+            }
+
             catch (BottleDisabledException &e)
             {
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
+                frontLED.errorAnimation();
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 // TODO: Handle data change. Disable beverage that was called with this bottle.
                 loadCocktailMenu();
@@ -690,6 +713,7 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
+                frontLED.errorAnimation();
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 loadCocktailMenu();
             }
@@ -698,6 +722,7 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
+                frontLED.errorAnimation();
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 // TODO: Handle data change. Disable bottle that was called with this beverage.
                 loadCocktailMenu();
@@ -707,6 +732,7 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
+                frontLED.errorAnimation();
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 // TODO: Handle data. Write the total cost from this beverage to log.
                 // e.get_priceDispensed();
@@ -718,6 +744,7 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
                 touchscreen.controlCurPage("t0", "pco", "63488");
                 touchscreen.controlCurPage("t0", "txt", e.what());
                 touchscreen.controlCurPage("t2", "txt", "");
+                frontLED.errorAnimation();
                 countdownMsg(COUNTDOWN_MSG_MS, true, "t1", "beverage menu");
                 // TODO: Handle data. Write the total cost from this beverage to log.
                 // e.get_priceDispensed();
@@ -745,6 +772,19 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
             } // if page 12
 
         } // else if finishGo
+        else if (input.cmd == "ebs")
+        {
+            Serial.print("Received ebs command ");
+            int id = input.value.toInt();
+            Serial.println(id);
+            if (id < 0 || id > MOTOR_COUNT)
+            {
+                throw("Invalid ebs bottle id: " + String(id));
+            } // if invalid id
+            bottles[id].active = !bottles[id].active;
+            saveNVSBottle(id, bottles[id]);
+            txMachineStatus();
+        } // if edit bottle status
         else if (input.cmd == "ebc")
         {
             Serial.print("Received ebc command ");
@@ -761,6 +801,11 @@ void Machine::inputDecisionTree(std::vector<InputData> &inputs)
             Serial.println("Received send status (ss) command");
             txMachineStatus();
         } // if send status (ss)
+        else if (input.cmd == "cba")
+        {
+            Serial.println("Received calibrate command.");
+            calibrate();
+        } // if calibrate
         else
         {
             Serial.println("Received an invalid command: " + input.cmd);
@@ -786,6 +831,12 @@ void Machine::createBeverage(int id)
         std::string error = "Beverage " + std::to_string(id) + " is not active.";
         throw BeverageDisabledException(error);
     } // if (beverages[id].isActive])
+
+    if (!isCalibrated)
+    {
+        std::string error = "Machine is not calibrated.";
+        throw MachineNotCalibratedException(error);
+    }
 
     Beverage &bev = beverages[id];
 
@@ -823,6 +874,7 @@ void Machine::createBeverage(int id)
 
     /*Loop through each bottle and determine amount to dispense.*/
     double totalCost = 0.0;
+    frontLED.clear();
     for (int i = 0; i < MOTOR_COUNT; i++)
     {
         if (bev.ozArr[i] > 0)
@@ -860,6 +912,7 @@ void Machine::createBeverage(int id)
     touchscreen.controlCurPage("t0", "pco", "1024");
     touchscreen.controlCurPage("t0", "txt", "Dispensing complete!");
     touchscreen.controlCurPage("t1", "txt", bev.additionalInstructions);
+    frontLED.successAnimation();
     countdownMsg(COUNTDOWN_BEV_MSG_MS, true, "t2", "main menu");
     loadMainMenu();
     return;
@@ -869,24 +922,24 @@ double Machine::dispense(int motorId, double oz, double runningOz, double totalO
 {
     double beforeDispense = loadCell.getCurrentWeight();
     Serial.println("Before dispense: " + String(beforeDispense));
-    double goalDispense = convertToScaleUnit(oz) + goalDispense;
+    double goalDispense = convertToScaleUnit(oz) + beforeDispense;
     Serial.println("Goal Dispense: " + String(goalDispense));
     double currentDispense = beforeDispense;
 
     long startRunTime = millis();
     InputData dataIn = checkForInput()[0];
+    motorControl.runMotor(motorId, true);
     while (currentDispense < goalDispense)
     {
-        // TODO: Keep checking for user input, if its cancel then terminate
-        // TODO: KEEP ALIVE MQTT
-        // TODO: KEEP ALIVE WIFI
+        mqttClient.loop();
+        wifiClient.flush();
+
         if (dataIn.cmd == "cancel")
         {
-            // TODO: STOP MOTOR
+            motorControl.runMotor(motorId, false);
             throw BeverageCancelledException("Cancelled by user.", convertToOz(currentDispense - beforeDispense));
         } // if
         dataIn = checkForInput()[0];
-        // TODO: RUN MOTOR (Get the serial digital output running) (write on)
         currentDispense = loadCell.getCurrentWeight();
 
         // Calculate the dispensed amount in the current iteration
@@ -898,14 +951,14 @@ double Machine::dispense(int motorId, double oz, double runningOz, double totalO
         long curTime = millis();
         if (curTime - startRunTime > MOTOR_TIMEOUT_MS)
         {
-            // TODO: STOP MOTOR
+            motorControl.runMotor(motorId, false);
             throw MotorTimeoutException("Motor " + std::to_string(motorId) + " timed out at " + std::to_string(curTime - startRunTime) + " milliseconds and at  " + std::to_string(currentDispense) + " oz.");
         } // if
         // if someone suddenly removes the cup (weight decreases substantially) the loop should terminate to avoid mess
         if (currentDispense < beforeDispense - CUP_REMOVAL_THRESHOLD)
         {
             // throw CupRemovedException with a string that contains some detail about the weight
-            // TODO: STOP MOTOR
+            motorControl.runMotor(motorId, false);
             // throw CupRemovedException("Cup removed during dispensing. Before: " + std::to_string(beforeDispense) + " After: " + std::to_string(currentDispense) + "Const Cup Removal Threshold: " + std::to_string(CUP_REMOVAL_THRESHOLD));
             throw CupRemovedException("Cup removed during dispensing.", convertToOz(currentDispense - beforeDispense));
         } // if
@@ -916,7 +969,7 @@ double Machine::dispense(int motorId, double oz, double runningOz, double totalO
 
     } // while
 
-    // TODO: STOP MOTOR
+    motorControl.runMotor(motorId, false);
 
     return convertToOz(currentDispense - beforeDispense);
 } // Machine::dispense()
@@ -1130,8 +1183,18 @@ void FrontLEDControl::clear()
 
 void FrontLEDControl::standby()
 {
-    fill_solid(leds, FRONT_LED_COUNT, CRGB::Blue);
-    FastLED.show();
+    int currentBrightness = FastLED.getBrightness();
+    int targetBrightness = 50;
+    int brightnessStep = (targetBrightness - currentBrightness) / 10;
+
+    for (int i = 0; i < 10; i++)
+    {
+        FastLED.setBrightness(currentBrightness + brightnessStep * i);
+        fill_solid(leds, FRONT_LED_COUNT, CRGB::Blue);
+        FastLED.show();
+        delay(10);
+    }
+
 }; // FrontLEDControl::standby()
 
 void FrontLEDControl::updateProgress(double percentage)
@@ -1140,7 +1203,7 @@ void FrontLEDControl::updateProgress(double percentage)
 
     for (int i = lastUpdatedLed + 1; i < ledsToLight; i++)
     {
-        leds[i] = CRGB::Green;
+        leds[i] = CRGB::Red;
     }
 
     lastUpdatedLed = ledsToLight - 1;
@@ -1149,11 +1212,64 @@ void FrontLEDControl::updateProgress(double percentage)
 
 } // FrontLEDControl::updateProgress()
 
-void FrontLEDControl::successAnimation(){
-    // TODO
+void FrontLEDControl::successAnimation()
+{
+    // 1. Green Chase on a Black Strip
+    int chaseLength = 5; // Number of consecutive LEDs to light up in the chase
+    int chaseRounds = 2; // Number of times the chase should go around the strip
+    int chaseDelay = 8;  // Milliseconds delay for the chase effect (controls speed)
 
-}; // FrontLEDControl::successAnimation()
+    for (int round = 0; round < chaseRounds; round++)
+    {
+        for (int i = 0; i < FRONT_LED_COUNT; i++)
+        {
+            clear(); // Ensure all LEDs are off to start with
 
-void FrontLEDControl::errorAnimation(){
-    // TODO
-}; // FrontLEDControl::errorAnimation()
+            // Turn on the LEDs for the chase segment
+            for (int j = 0; j < chaseLength && (i + j) < FRONT_LED_COUNT; j++)
+            {
+                leds[i + j] = CRGB::Red;
+            }
+
+            FastLED.show();
+            delay(chaseDelay);
+        }
+    }
+
+    // 2. Entire Strip Fade to Green
+    int initialBrightness = 50;
+    int finalBrightness = 255;
+    int numFadeSteps = 30;
+    int brightnessStep = (finalBrightness - initialBrightness) / numFadeSteps;
+    int fadeDelay = 25; // Milliseconds delay for fade effect
+
+    fill_solid(leds, FRONT_LED_COUNT, CRGB::Red); // Set all LEDs to green
+
+    for (int brightness = initialBrightness; brightness <= finalBrightness; brightness += brightnessStep)
+    {
+        FastLED.setBrightness(brightness);
+        FastLED.show();
+        delay(fadeDelay);
+    }
+
+    FastLED.setBrightness(255); // Ensure brightness is fully restored
+} // FrontLEDControl::successAnimation()
+
+void FrontLEDControl::errorAnimation()
+{
+    // Flash red a few times
+    int numFlashes = 3;
+    int flashDelay = 200; // Milliseconds delay for each flash
+    for (int i = 0; i < numFlashes; i++)
+    {
+        fill_solid(leds, FRONT_LED_COUNT, CRGB::Green);
+        FastLED.show();
+        delay(flashDelay);
+        clear();
+        FastLED.show();
+        delay(flashDelay);
+    }
+    fill_solid(leds, FRONT_LED_COUNT, CRGB::Green);
+    FastLED.show();
+
+} // FrontLEDControl::errorAnimation()

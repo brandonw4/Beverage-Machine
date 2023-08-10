@@ -15,6 +15,8 @@
 #include "MachineExceptions.hpp"
 #include "SecretEnv.h" //holds CERT,
 #include <FastLED.h>
+#include <Adafruit_PWMServoDriver.h>
+#include <Wire.h>
 
 #define CS_PIN 5
 
@@ -28,23 +30,49 @@ const uint8_t LOADCELL_GAIN = 128;
 const size_t MOTOR_COUNT = 8;
 const size_t BEV_COUNT = 12;
 
+class MotorControl
+{
+    // class to take PCA9685 and write to it to control motors
+public:
+    // TODO: Fix the construction of this!!!
+    Adafruit_PWMServoDriver pwm;
+    void init()
+    {
+        pwm = Adafruit_PWMServoDriver();
+        pwm.begin();
+        Serial.println("PCA9685 Pump Control Init");
+    }
+    void runMotor(int id, bool run)
+    {
+        if (run)
+        {
+            pwm.setPWM(id, 0, 4095);
+            Serial.println("Running motor " + String(id));
+        }
+        else
+        {
+            pwm.setPWM(id, 0, 0);
+            Serial.println("Stopping motor " + String(id));
+        }
+    }
+};
+
 class FrontLEDControl
 {
 private:
     // LED Wiring
     static const int FRONT_LED_PIN = 27;
-    static const int FRONT_LED_COUNT = 60;
+    static const int FRONT_LED_COUNT = 40;
     CRGB leds[FRONT_LED_COUNT];
     int lastUpdatedLed = -1;
 
 public:
-    FrontLEDControl()
+    void init()
     {
         FastLED.addLeds<NEOPIXEL, FRONT_LED_PIN>(leds, FRONT_LED_COUNT);
         FastLED.setBrightness(255);
         standby();
     }
-
     void clear();
     void standby();
     void updateProgress(double percent);
@@ -168,9 +196,11 @@ class TouchControl
     Colors:
     -White: 65535
     -Black: 0
-    -Yellow:
+    -Yellow: 65088
     -Red: 63488
     -Green: 1024
+    -Grey: 33808
+    -Navy: 297
     */
 private:
     void touchOutput(String str); // touch screen requires specific format
@@ -310,6 +340,9 @@ private:
 
     // Front LED
     FrontLEDControl frontLED;
+
+    // Pump Control
+    MotorControl motorControl;
 
 public:
     Machine(size_t bottleCount, size_t bevCount);
